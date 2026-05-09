@@ -23,4 +23,5 @@
 | `DESIGN.md` | 架构总览、目录结构、GAS 组件、能力设计、数据流、设计模式、类图、扩展指南、构建说明 |
 | `Docs/Design/Fire/FireDesign.md` | 开火能力的设计过程与踩坑记录 |
 | `Docs/Design/Reload/ReloadDesign.md` | 换弹能力的设计过程与踩坑记录 |
+| `Docs/Design/UnLua/UnLuaDesign.md` | UnLua 集成设计、兼容性修复与绑定方式 |
 | `AGENTS.md` | 本文件 — 项目规则与规范 |

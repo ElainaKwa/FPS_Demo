@@ -80,6 +80,11 @@ void ABaseCharacter::BeginPlay()
 	}
 
 	SpawnDefaultWeapon();
+
+	if (!GetMesh()->GetSkeletalMeshAsset())
+	{
+		GetMesh()->SetAnimationMode(EAnimationMode::AnimationCustomMode);
+	}
 }
 
 void ABaseCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -253,7 +258,14 @@ void ABaseCharacter::AttachWeaponMeshes(ABaseWeapon* Weapon)
 	Weapon->GetFirstPersonMesh()->AttachToComponent(FirstPersonMesh, AttachRules, FirstPersonWeaponSocket);
 	Weapon->GetFirstPersonMesh()->AddLocalRotation(Weapon->FirstPersonMeshRotationOffset);
 
-	Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachRules, ThirdPersonWeaponSocket);
+	if (GetMesh()->GetSkeletalMeshAsset())
+	{
+		Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachRules, ThirdPersonWeaponSocket);
+	}
+	else
+	{
+		Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachRules);
+	}
 }
 
 FVector ABaseCharacter::GetWeaponTargetLocation() const

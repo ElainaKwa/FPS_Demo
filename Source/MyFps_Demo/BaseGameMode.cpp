@@ -10,3 +10,8 @@ ABaseGameMode::ABaseGameMode()
 	DefaultPawnClass = ABaseCharacter::StaticClass();
 	PlayerControllerClass = ABasePlayerController::StaticClass();
 }
+
+FString ABaseGameMode::GetModuleName_Implementation() const
+{
+	return TEXT("BaseGameMode");
+}
