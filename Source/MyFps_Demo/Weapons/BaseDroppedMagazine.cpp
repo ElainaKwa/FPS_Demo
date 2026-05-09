@@ -1,12 +1,12 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "MyFpsDroppedMagazine.h"
+#include "BaseDroppedMagazine.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
 
-AMyFpsDroppedMagazine::AMyFpsDroppedMagazine()
+ABaseDroppedMagazine::ABaseDroppedMagazine()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
@@ -18,7 +18,7 @@ AMyFpsDroppedMagazine::AMyFpsDroppedMagazine()
 	MagazineMesh->SetNotifyRigidBodyCollision(true);
 }
 
-void AMyFpsDroppedMagazine::Initialize(UStaticMesh* InMesh, const FVector& InitialVelocity)
+void ABaseDroppedMagazine::Initialize(UStaticMesh* InMesh, const FVector& InitialVelocity)
 {
 	if (InMesh)
 	{
@@ -29,14 +29,14 @@ void AMyFpsDroppedMagazine::Initialize(UStaticMesh* InMesh, const FVector& Initi
 	MagazineMesh->AddAngularImpulseInRadians(FVector(FMath::FRandRange(-3.0f, 3.0f), FMath::FRandRange(-3.0f, 3.0f), FMath::FRandRange(-3.0f, 3.0f)), NAME_None, true);
 }
 
-void AMyFpsDroppedMagazine::BeginPlay()
+void ABaseDroppedMagazine::BeginPlay()
 {
 	Super::BeginPlay();
 
-	GetWorld()->GetTimerManager().SetTimer(DestroyTimer, this, &AMyFpsDroppedMagazine::OnDestroyTimer, AutoDestroyTime, false);
+	GetWorld()->GetTimerManager().SetTimer(DestroyTimer, this, &ABaseDroppedMagazine::OnDestroyTimer, AutoDestroyTime, false);
 }
 
-void AMyFpsDroppedMagazine::OnDestroyTimer()
+void ABaseDroppedMagazine::OnDestroyTimer()
 {
 	Destroy();
 }

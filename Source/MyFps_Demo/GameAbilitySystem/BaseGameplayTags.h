@@ -1,0 +1,15 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "NativeGameplayTags.h"
+
+namespace BaseGameplayTags
+{
+	MYFPS_DEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Fire);
+	MYFPS_DEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Reload);
+	MYFPS_DEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Firing);
+	MYFPS_DEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Reloading);
+	MYFPS_DEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_OutOfAmmo);
+	MYFPS_DEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Data_Damage);
+}

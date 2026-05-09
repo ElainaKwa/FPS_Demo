@@ -4,12 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "MyFpsDroppedMagazine.generated.h"
+#include "BaseDroppedMagazine.generated.h"
 
 class UStaticMeshComponent;
 
 UCLASS(Blueprintable)
-class MYFPS_DEMO_API AMyFpsDroppedMagazine : public AActor
+class MYFPS_DEMO_API ABaseDroppedMagazine : public AActor
 {
 	GENERATED_BODY()
 
@@ -23,10 +23,13 @@ class MYFPS_DEMO_API AMyFpsDroppedMagazine : public AActor
 
 public:
 
-	AMyFpsDroppedMagazine();
+	ABaseDroppedMagazine();
 
 	UFUNCTION(BlueprintCallable, Category = "Drop")
 	void Initialize(UStaticMesh* InMesh, const FVector& InitialVelocity);
+
+	UFUNCTION(BlueprintPure, Category = "Drop")
+	UStaticMeshComponent* GetMagazineMesh() const { return MagazineMesh; }
 
 protected:
 

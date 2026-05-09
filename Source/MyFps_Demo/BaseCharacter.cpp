@@ -1,7 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "MyFpsCharacter.h"
-#include "Weapons/MyFpsWeapon.h"
+#include "BaseCharacter.h"
+#include "Weapons/BaseWeapon.h"
+#include "GameAbilitySystem/BaseAbilitySystemComponent.h"
+#include "GameAbilitySystem/BaseWeaponAttributeSet.h"
+#include "GameAbilitySystem/BaseGameplayTags.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
@@ -12,8 +15,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "AbilitySystemComponent.h"
 
-AMyFpsCharacter::AMyFpsCharacter()
+ABaseCharacter::ABaseCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
@@ -46,9 +50,15 @@ AMyFpsCharacter::AMyFpsCharacter()
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 10.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
+
+	AbilitySystemComponent = CreateDefaultSubobject<UBaseAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AbilitySystemComponent->SetIsReplicated(true);
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+
+	WeaponAttributeSet = CreateDefaultSubobject<UBaseWeaponAttributeSet>(TEXT("WeaponAttributeSet"));
 }
 
-void AMyFpsCharacter::BeginPlay()
+void ABaseCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
@@ -63,16 +73,21 @@ void AMyFpsCharacter::BeginPlay()
 		}
 	}
 
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this);
+		AbilitySystemComponent->GrantDefaultAbilities();
+	}
+
 	SpawnDefaultWeapon();
-	
 }
 
-void AMyFpsCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
+void ABaseCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	Super::EndPlay(EndPlayReason);
 }
 
-void AMyFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+void ABaseCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
@@ -80,34 +95,34 @@ void AMyFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 	{
 		if (MoveAction)
 		{
-			EnhancedInput->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AMyFpsCharacter::OnMove);
+			EnhancedInput->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ABaseCharacter::OnMove);
 		}
 		if (LookAction)
 		{
-			EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMyFpsCharacter::OnLook);
+			EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ABaseCharacter::OnLook);
 		}
 		if (JumpAction)
 		{
-			EnhancedInput->BindAction(JumpAction, ETriggerEvent::Started, this, &AMyFpsCharacter::OnJumpStarted);
-			EnhancedInput->BindAction(JumpAction, ETriggerEvent::Completed, this, &AMyFpsCharacter::OnJumpEnded);
+			EnhancedInput->BindAction(JumpAction, ETriggerEvent::Started, this, &ABaseCharacter::OnJumpStarted);
+			EnhancedInput->BindAction(JumpAction, ETriggerEvent::Completed, this, &ABaseCharacter::OnJumpEnded);
 		}
 		if (FireAction)
 		{
-			EnhancedInput->BindAction(FireAction, ETriggerEvent::Started, this, &AMyFpsCharacter::OnStartFiring);
-			EnhancedInput->BindAction(FireAction, ETriggerEvent::Completed, this, &AMyFpsCharacter::OnStopFiring);
+			EnhancedInput->BindAction(FireAction, ETriggerEvent::Started, this, &ABaseCharacter::OnStartFiring);
+			EnhancedInput->BindAction(FireAction, ETriggerEvent::Completed, this, &ABaseCharacter::OnStopFiring);
 		}
 		if (ReloadAction)
 		{
-			EnhancedInput->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &AMyFpsCharacter::OnReload);
+			EnhancedInput->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &ABaseCharacter::OnReload);
 		}
 		if (SwitchWeaponAction)
 		{
-			EnhancedInput->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &AMyFpsCharacter::OnSwitchWeapon);
+			EnhancedInput->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &ABaseCharacter::OnSwitchWeapon);
 		}
 	}
 }
 
-void AMyFpsCharacter::OnMove(const FInputActionValue& Value)
+void ABaseCharacter::OnMove(const FInputActionValue& Value)
 {
 	const FVector2D MoveVector = Value.Get<FVector2D>();
 
@@ -122,7 +137,7 @@ void AMyFpsCharacter::OnMove(const FInputActionValue& Value)
 	}
 }
 
-void AMyFpsCharacter::OnLook(const FInputActionValue& Value)
+void ABaseCharacter::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D LookVector = Value.Get<FVector2D>();
 
@@ -133,45 +148,64 @@ void AMyFpsCharacter::OnLook(const FInputActionValue& Value)
 	}
 }
 
-void AMyFpsCharacter::OnJumpStarted()
+void ABaseCharacter::OnJumpStarted()
 {
 	Jump();
 }
 
-void AMyFpsCharacter::OnJumpEnded()
+void ABaseCharacter::OnJumpEnded()
 {
 	StopJumping();
 }
 
-void AMyFpsCharacter::OnStartFiring()
+void ABaseCharacter::OnStartFiring()
 {
-	if (CurrentWeapon)
+	if (AbilitySystemComponent)
 	{
-		CurrentWeapon->StartFiring();
+		AbilitySystemComponent->TryActivateAbility(AbilitySystemComponent->GetFireAbilityHandle());
 	}
 }
 
-void AMyFpsCharacter::OnStopFiring()
+void ABaseCharacter::OnStopFiring()
 {
-	if (CurrentWeapon)
+	if (AbilitySystemComponent)
 	{
-		CurrentWeapon->StopFiring();
+		AbilitySystemComponent->AbilityLocalInputReleased(static_cast<int32>(EAbilityInputID::Fire));
 	}
 }
 
-void AMyFpsCharacter::OnReload()
+void ABaseCharacter::OnReload()
 {
-	if (CurrentWeapon)
+	if (!AbilitySystemComponent)
 	{
-		CurrentWeapon->StartReload();
+		return;
+	}
+
+	AbilitySystemComponent->CancelFireAbility();
+
+	FGameplayAbilitySpecHandle Handle = AbilitySystemComponent->GetReloadAbilityHandle();
+	if (!Handle.IsValid())
+	{
+		AbilitySystemComponent->GrantDefaultAbilities();
+		Handle = AbilitySystemComponent->GetReloadAbilityHandle();
+	}
+
+	if (Handle.IsValid())
+	{
+		AbilitySystemComponent->TryActivateAbility(Handle);
 	}
 }
 
-void AMyFpsCharacter::OnSwitchWeapon()
+void ABaseCharacter::OnSwitchWeapon()
 {
 	if (OwnedWeapons.Num() <= 1)
 	{
 		return;
+	}
+
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->CancelAllAbilities();
 	}
 
 	int32 Index = OwnedWeapons.Find(CurrentWeapon);
@@ -180,7 +214,7 @@ void AMyFpsCharacter::OnSwitchWeapon()
 	SwitchToWeapon(OwnedWeapons[Index]);
 }
 
-void AMyFpsCharacter::SpawnDefaultWeapon()
+void ABaseCharacter::SpawnDefaultWeapon()
 {
 	if (DefaultWeaponClass)
 	{
@@ -188,9 +222,26 @@ void AMyFpsCharacter::SpawnDefaultWeapon()
 	}
 }
 
-// ---- IMyFpsWeaponHolder ----
+UAbilitySystemComponent* ABaseCharacter::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
 
-void AMyFpsCharacter::AttachWeaponMeshes(AMyFpsWeapon* Weapon)
+void ABaseCharacter::SyncAttributeSetFromWeapon() const
+{
+	if (!WeaponAttributeSet || !CurrentWeapon)
+	{
+		return;
+	}
+
+	const int32 MaxAmmo = CurrentWeapon->GetEffectiveMagazineSize();
+	WeaponAttributeSet->SetMaxAmmo(static_cast<float>(MaxAmmo));
+	WeaponAttributeSet->SetCurrentAmmo(static_cast<float>(CurrentWeapon->CurrentBullets));
+}
+
+// ---- IBaseWeaponHolder ----
+
+void ABaseCharacter::AttachWeaponMeshes(ABaseWeapon* Weapon)
 {
 	if (!Weapon)
 	{
@@ -205,7 +256,7 @@ void AMyFpsCharacter::AttachWeaponMeshes(AMyFpsWeapon* Weapon)
 	Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachRules, ThirdPersonWeaponSocket);
 }
 
-FVector AMyFpsCharacter::GetWeaponTargetLocation() const
+FVector ABaseCharacter::GetWeaponTargetLocation() const
 {
 	const FVector Start = FirstPersonCamera->GetComponentLocation();
 	const FVector End = Start + (FirstPersonCamera->GetForwardVector() * MaxAimDistance);
@@ -219,7 +270,7 @@ FVector AMyFpsCharacter::GetWeaponTargetLocation() const
 	return Hit.bBlockingHit ? Hit.ImpactPoint : Hit.TraceEnd;
 }
 
-void AMyFpsCharacter::PlayFiringMontage(UAnimMontage* Montage)
+void ABaseCharacter::PlayFiringMontage(UAnimMontage* Montage)
 {
 	if (Montage && FirstPersonMesh->GetAnimInstance())
 	{
@@ -227,7 +278,7 @@ void AMyFpsCharacter::PlayFiringMontage(UAnimMontage* Montage)
 	}
 }
 
-void AMyFpsCharacter::PlayReloadMontage(UAnimMontage* Montage)
+void ABaseCharacter::PlayReloadMontage(UAnimMontage* Montage)
 {
 	if (Montage && FirstPersonMesh->GetAnimInstance())
 	{
@@ -235,26 +286,26 @@ void AMyFpsCharacter::PlayReloadMontage(UAnimMontage* Montage)
 	}
 }
 
-void AMyFpsCharacter::AddWeaponRecoil(float RecoilAmount)
+void ABaseCharacter::AddWeaponRecoil(float RecoilAmount)
 {
 	AddControllerPitchInput(RecoilAmount);
 }
 
-void AMyFpsCharacter::UpdateWeaponHUD(int32 CurrentAmmo, int32 MaxAmmo)
+void ABaseCharacter::UpdateWeaponHUD(int32 CurrentAmmo, int32 MaxAmmo)
 {
 	OnBulletCountUpdated.Broadcast(CurrentAmmo, MaxAmmo);
 }
 
 // ---- Weapon Management ----
 
-void AMyFpsCharacter::AddWeapon(TSubclassOf<AMyFpsWeapon> WeaponClass)
+void ABaseCharacter::AddWeapon(TSubclassOf<ABaseWeapon> WeaponClass)
 {
 	if (!WeaponClass)
 	{
 		return;
 	}
 
-	AMyFpsWeapon* Existing = FindWeaponOfClass(WeaponClass);
+	ABaseWeapon* Existing = FindWeaponOfClass(WeaponClass);
 	if (Existing)
 	{
 		SwitchToWeapon(Existing);
@@ -266,7 +317,7 @@ void AMyFpsCharacter::AddWeapon(TSubclassOf<AMyFpsWeapon> WeaponClass)
 	SpawnParams.Instigator = this;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	AMyFpsWeapon* NewWeapon = GetWorld()->SpawnActor<AMyFpsWeapon>(WeaponClass, GetActorTransform(), SpawnParams);
+	ABaseWeapon* NewWeapon = GetWorld()->SpawnActor<ABaseWeapon>(WeaponClass, GetActorTransform(), SpawnParams);
 	if (!NewWeapon)
 	{
 		return;
@@ -281,9 +332,16 @@ void AMyFpsCharacter::AddWeapon(TSubclassOf<AMyFpsWeapon> WeaponClass)
 
 	CurrentWeapon = NewWeapon;
 	CurrentWeapon->ActivateWeapon();
+
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->SetCurrentWeapon(CurrentWeapon);
+	}
+
+	SyncAttributeSetFromWeapon();
 }
 
-void AMyFpsCharacter::SwitchToWeapon(AMyFpsWeapon* NewWeapon)
+void ABaseCharacter::SwitchToWeapon(ABaseWeapon* NewWeapon)
 {
 	if (!NewWeapon || NewWeapon == CurrentWeapon)
 	{
@@ -297,11 +355,18 @@ void AMyFpsCharacter::SwitchToWeapon(AMyFpsWeapon* NewWeapon)
 
 	CurrentWeapon = NewWeapon;
 	CurrentWeapon->ActivateWeapon();
+
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->SetCurrentWeapon(CurrentWeapon);
+	}
+
+	SyncAttributeSetFromWeapon();
 }
 
-AMyFpsWeapon* AMyFpsCharacter::FindWeaponOfClass(TSubclassOf<AMyFpsWeapon> WeaponClass) const
+ABaseWeapon* ABaseCharacter::FindWeaponOfClass(TSubclassOf<ABaseWeapon> WeaponClass) const
 {
-	for (AMyFpsWeapon* Weapon : OwnedWeapons)
+	for (ABaseWeapon* Weapon : OwnedWeapons)
 	{
 		if (Weapon && Weapon->IsA(WeaponClass))
 		{

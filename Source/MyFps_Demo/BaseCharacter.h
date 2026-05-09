@@ -4,8 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "Weapons/MyFpsWeaponHolder.h"
-#include "MyFpsCharacter.generated.h"
+#include "AbilitySystemInterface.h"
+#include "Weapons/BaseWeaponHolder.h"
+#include "BaseCharacter.generated.h"
 
 class USkeletalMeshComponent;
 class UCameraComponent;
@@ -13,12 +14,14 @@ class UInputAction;
 class UInputMappingContext;
 class UInputComponent;
 class UAnimMontage;
-class AMyFpsWeapon;
+class ABaseWeapon;
+class UBaseAbilitySystemComponent;
+class UBaseWeaponAttributeSet;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnBulletCountUpdated, int32, CurrentBullets, int32, MaxBullets);
 
 UCLASS(Abstract, Blueprintable)
-class MYFPS_DEMO_API AMyFpsCharacter : public ACharacter, public IMyFpsWeaponHolder
+class MYFPS_DEMO_API ABaseCharacter : public ACharacter, public IBaseWeaponHolder, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
@@ -27,6 +30,12 @@ class MYFPS_DEMO_API AMyFpsCharacter : public ACharacter, public IMyFpsWeaponHol
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UBaseAbilitySystemComponent> AbilitySystemComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UBaseWeaponAttributeSet> WeaponAttributeSet;
 
 public:
 
@@ -69,15 +78,15 @@ public:
 	// ---- Weapon Inventory ----
 
 	UPROPERTY()
-	TArray<TObjectPtr<AMyFpsWeapon>> OwnedWeapons;
+	TArray<TObjectPtr<ABaseWeapon>> OwnedWeapons;
 
 	UPROPERTY()
-	TObjectPtr<AMyFpsWeapon> CurrentWeapon;
+	TObjectPtr<ABaseWeapon> CurrentWeapon;
 
 	// ---- Default Weapon ----
 
 	UPROPERTY(EditAnywhere, Category = "Weapon")
-	TSubclassOf<AMyFpsWeapon> DefaultWeaponClass;
+	TSubclassOf<ABaseWeapon> DefaultWeaponClass;
 
 public:
 
@@ -86,7 +95,7 @@ public:
 
 public:
 
-	AMyFpsCharacter();
+	ABaseCharacter();
 
 protected:
 
@@ -95,8 +104,6 @@ protected:
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-
-	// ---- Enhanced Input Handlers ----
 
 	void OnMove(const struct FInputActionValue& Value);
 
@@ -114,8 +121,6 @@ protected:
 
 	void OnSwitchWeapon();
 
-	// ---- Default Weapon Spawning ----
-
 	void SpawnDefaultWeapon();
 
 public:
@@ -127,11 +132,13 @@ public:
 	UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; }
 
 	UFUNCTION(BlueprintPure, Category = "MyFps")
-	AMyFpsWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
+	virtual ABaseWeapon* GetCurrentWeapon() const override { return CurrentWeapon; }
 
-	// ---- IMyFpsWeaponHolder Interface ----
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
-	virtual void AttachWeaponMeshes(AMyFpsWeapon* Weapon) override;
+	// ---- IBaseWeaponHolder Interface ----
+
+	virtual void AttachWeaponMeshes(ABaseWeapon* Weapon) override;
 
 	virtual FVector GetWeaponTargetLocation() const override;
 
@@ -146,12 +153,14 @@ public:
 	// ---- Weapon Management ----
 
 	UFUNCTION(BlueprintCallable, Category = "MyFps|Weapon")
-	void AddWeapon(TSubclassOf<AMyFpsWeapon> WeaponClass);
+	void AddWeapon(TSubclassOf<ABaseWeapon> WeaponClass);
 
 	UFUNCTION(BlueprintCallable, Category = "MyFps|Weapon")
-	void SwitchToWeapon(AMyFpsWeapon* NewWeapon);
+	void SwitchToWeapon(ABaseWeapon* NewWeapon);
 
 protected:
 
-	AMyFpsWeapon* FindWeaponOfClass(TSubclassOf<AMyFpsWeapon> WeaponClass) const;
+	ABaseWeapon* FindWeaponOfClass(TSubclassOf<ABaseWeapon> WeaponClass) const;
+
+	void SyncAttributeSetFromWeapon() const;
 };

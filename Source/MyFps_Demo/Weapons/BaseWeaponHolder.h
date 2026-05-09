@@ -4,24 +4,24 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
-#include "MyFpsWeaponHolder.generated.h"
+#include "BaseWeaponHolder.generated.h"
 
-class AMyFpsWeapon;
+class ABaseWeapon;
 class UAnimMontage;
 
 UINTERFACE(MinimalAPI)
-class UMyFpsWeaponHolder : public UInterface
+class UBaseWeaponHolder : public UInterface
 {
 	GENERATED_BODY()
 };
 
-class MYFPS_DEMO_API IMyFpsWeaponHolder
+class MYFPS_DEMO_API IBaseWeaponHolder
 {
 	GENERATED_BODY()
 
 public:
 
-	virtual void AttachWeaponMeshes(AMyFpsWeapon* Weapon) = 0;
+	virtual void AttachWeaponMeshes(ABaseWeapon* Weapon) = 0;
 
 	virtual FVector GetWeaponTargetLocation() const = 0;
 
@@ -32,4 +32,6 @@ public:
 	virtual void AddWeaponRecoil(float RecoilAmount) {}
 
 	virtual void UpdateWeaponHUD(int32 CurrentAmmo, int32 MaxAmmo) {}
+
+	virtual ABaseWeapon* GetCurrentWeapon() const = 0;
 };

@@ -4,18 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "MyFpsWeaponHolder.h"
-#include "MyFpsWeapon.generated.h"
+#include "BaseWeaponHolder.h"
+#include "BaseWeapon.generated.h"
 
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UAnimMontage;
 class UAnimInstance;
-enum class EMyFpsAttachmentSlot : uint8;
-class AMyFpsWeaponAttachment;
+enum class EBaseAttachmentSlot : uint8;
+class ABaseWeaponAttachment;
 
 UCLASS(Abstract, Blueprintable)
-class MYFPS_DEMO_API AMyFpsWeapon : public AActor
+class MYFPS_DEMO_API ABaseWeapon : public AActor
 {
 	GENERATED_BODY()
 
@@ -30,7 +30,7 @@ class MYFPS_DEMO_API AMyFpsWeapon : public AActor
 
 public:
 
-	IMyFpsWeaponHolder* WeaponOwner;
+	IBaseWeaponHolder* WeaponOwner;
 
 	// ---- Ammo ----
 
@@ -49,8 +49,6 @@ public:
 
 	float TimeOfLastShot = 0.0f;
 
-	bool bIsFiring = false;
-
 	bool bIsReloading = false;
 
 	// ---- Damage ----
@@ -61,6 +59,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Damage", meta = (ClampMin = 100.0f, ClampMax = 100000.0f, Units = "cm"))
 	float MaxRange = 10000.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Damage")
 	TSubclassOf<UDamageType> DamageTypeClass;
 
 	// ---- Recoil & Spread ----
@@ -128,21 +127,11 @@ public:
 	FName MagazineSocket = FName("SOCKET_Magazine");
 
 	UPROPERTY()
-	TMap<EMyFpsAttachmentSlot, TObjectPtr<AMyFpsWeaponAttachment>> EquippedAttachments;
-
-	// ---- Timers ----
-
-	FTimerHandle RefireTimer;
-
-	FTimerHandle ReloadTimer;
-
-	FTimerHandle MagDropTimer;
-
-	FTimerHandle MagInsertTimer;
+	TMap<EBaseAttachmentSlot, TObjectPtr<ABaseWeaponAttachment>> EquippedAttachments;
 
 public:
 
-	AMyFpsWeapon();
+	ABaseWeapon();
 
 	UPROPERTY(EditAnywhere, Category = "Mesh")
 	FRotator FirstPersonMeshRotationOffset = FRotator::ZeroRotator;
@@ -162,21 +151,11 @@ public:
 
 	void DeactivateWeapon();
 
-	void StartFiring();
-
-	void StopFiring();
-
-protected:
-
-	void Fire();
-
-	void OnRefireCooldown();
-
 	FVector GetMuzzleLocation() const;
 
 	FVector CalculateSpread(const FVector& AimDirection) const;
 
-	FName GetSocketNameForSlot(EMyFpsAttachmentSlot Slot) const;
+	FName GetSocketNameForSlot(EBaseAttachmentSlot Slot) const;
 
 public:
 
@@ -202,16 +181,16 @@ public:
 	// ---- Attachment API ----
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Attachments")
-	void EquipAttachment(EMyFpsAttachmentSlot Slot, TSubclassOf<AMyFpsWeaponAttachment> AttachmentClass);
+	void EquipAttachment(EBaseAttachmentSlot Slot, TSubclassOf<ABaseWeaponAttachment> AttachmentClass);
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Attachments")
-	void RemoveAttachment(EMyFpsAttachmentSlot Slot);
+	void RemoveAttachment(EBaseAttachmentSlot Slot);
 
 	UFUNCTION(BlueprintPure, Category = "Weapon|Attachments")
-	AMyFpsWeaponAttachment* GetAttachment(EMyFpsAttachmentSlot Slot) const;
+	ABaseWeaponAttachment* GetAttachment(EBaseAttachmentSlot Slot) const;
 
 	UFUNCTION(BlueprintPure, Category = "Weapon|Attachments")
-	bool HasAttachment(EMyFpsAttachmentSlot Slot) const;
+	bool HasAttachment(EBaseAttachmentSlot Slot) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Attachments")
 	void ClearAllAttachments();
@@ -226,13 +205,7 @@ public:
 
 	int32 GetEffectiveMagazineSize() const;
 
-	// ---- Reload API ----
-
-	UFUNCTION(BlueprintCallable, Category = "Weapon|Reload")
-	void StartReload();
-
-	UFUNCTION(BlueprintCallable, Category = "Weapon|Reload")
-	void CancelReload();
+	// ---- Reload Helpers ----
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Reload")
 	void DropMagazine();
@@ -240,7 +213,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Reload")
 	void InsertMagazine();
 
-protected:
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Reload")
+	void CancelReloadVisuals();
 
-	void OnReloadComplete();
+protected:
 };

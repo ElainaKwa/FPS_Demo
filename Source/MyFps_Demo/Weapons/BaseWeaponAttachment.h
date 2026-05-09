@@ -4,12 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "MyFpsWeaponAttachment.generated.h"
+#include "BaseWeaponAttachment.generated.h"
 
 class UStaticMeshComponent;
 
 UENUM(BlueprintType)
-enum class EMyFpsAttachmentSlot : uint8
+enum class EBaseAttachmentSlot : uint8
 {
 	Muzzle		UMETA(DisplayName = "Muzzle (枪口)"),
 	Optic		UMETA(DisplayName = "Optic (瞄准镜)"),
@@ -19,7 +19,7 @@ enum class EMyFpsAttachmentSlot : uint8
 };
 
 UCLASS(Abstract, Blueprintable)
-class MYFPS_DEMO_API AMyFpsWeaponAttachment : public AActor
+class MYFPS_DEMO_API ABaseWeaponAttachment : public AActor
 {
 	GENERATED_BODY()
 
@@ -32,7 +32,7 @@ class MYFPS_DEMO_API AMyFpsWeaponAttachment : public AActor
 public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attachment")
-	EMyFpsAttachmentSlot AttachmentSlot;
+	EBaseAttachmentSlot AttachmentSlot;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attachment|Stats", meta = (ClampMin = 0.0f, ClampMax = 2.0f))
 	float RecoilMultiplier = 1.0f;
@@ -54,10 +54,10 @@ public:
 
 public:
 
-	AMyFpsWeaponAttachment();
+	ABaseWeaponAttachment();
 
 	UFUNCTION(BlueprintPure, Category = "Attachment")
-	EMyFpsAttachmentSlot GetAttachmentSlot() const { return AttachmentSlot; }
+	EBaseAttachmentSlot GetAttachmentSlot() const { return AttachmentSlot; }
 
 	UFUNCTION(BlueprintPure, Category = "Attachment")
 	UStaticMeshComponent* GetAttachmentMesh() const { return AttachmentMesh; }

@@ -1,10 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "MyFpsWeaponAttachment.h"
+#include "BaseWeaponAttachment.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 
-AMyFpsWeaponAttachment::AMyFpsWeaponAttachment()
+ABaseWeaponAttachment::ABaseWeaponAttachment()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
