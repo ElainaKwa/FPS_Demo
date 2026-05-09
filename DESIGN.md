@@ -228,13 +228,13 @@ InputAction (FireAction, ETriggerEvent::Started)
 ABaseCharacter::OnStartFiring()
   │
   ▼
-ASC->AbilityLocalInputPressed(EAbilityInputID::Fire)
+ASC->TryActivateAbility(FireHandle)
   │
   ▼
-ASC 查找 InputID 匹配的 AbilitySpec
+ASC 查找 Handle 对应的 AbilitySpec
   │
   ├─ 检查 ActivationBlockedTags (State.Reloading)
-  │   └─ 如果正在换弹 → 阻塞，不激活
+  │   └─ 如果正在换弹 → 阻塞，不激活（也通过 ActivateAbility 手动检查兜底）
   │
   ▼
 GA_WeaponFire::ActivateAbility()
@@ -261,10 +261,9 @@ PerformFire()
   ├─ PlayFiringMontage() ── 开火动画
   ├─ AddWeaponRecoil()    ── 镜头后坐力
   │
-  ├─ ApplyGameplayEffectSpecToOwner (GE_AmmoCost)
-  │   └─ AttributeSet.CurrentAmmo -= 1
-  │
-  ├─ 同步: Weapon.CurrentBullets = AttributeSet.CurrentAmmo
+  ├─ 先 --Weapon.CurrentBullets（不依赖 GE）
+  ├─ ApplyGameplayEffectSpecToOwner (GE_AmmoCost) → 消费弹药（附加）
+  ├─ ASC->SetNumericAttributeBase → 同步 AttributeSet
   │
   ├─ UpdateWeaponHUD() ── 刷新 UI
   │
@@ -295,9 +294,9 @@ WaitInputRelease Task 触发 OnInputReleased
 玩家按下 R 键 / Event.OutOfAmmo 触发
   │
   ▼
-ASC->AbilityLocalInputPressed(EAbilityInputID::Reload)
-  │
-  ├─ 检查 HasMatchingGameplayTag(State.Reloading) → 已在换弹则跳过
+ABaseCharacter::OnReload()
+  ├─ ASC->CancelFireAbility() ── 强制中断开火
+  └─ ASC->TryActivateAbility(ReloadHandle)
   │
   ▼
 GA_WeaponReload::ActivateAbility()
@@ -416,7 +415,7 @@ ABaseCharacter::OnSwitchWeapon()
 
 ┌─────────────────────────────┐  ┌─────────────────────────────┐
 │      UGA_WeaponFire          │  │     UGA_WeaponReload         │
-│  extends UGameplayAbility    │  │  extends UGameplayAbility    │
+│  extends UBaseGameplayAbility│  │  extends UBaseGameplayAbility│
 │  ├─ DamageEffectClass        │  │  ├─ ReloadAmmoEffectClass    │
 │  ├─ AmmoCostEffectClass      │  │  └─ 计时异步任务             │
 │  └─ 全自动/半自动循环        │  │                              │
