@@ -16,10 +16,14 @@ public class MyFps_Demo : ModuleRules
 			"EnhancedInput",
 			"GameplayAbilities",
 			"GameplayTasks",
-			"GameplayTags"
+			"GameplayTags",
+			"UMG"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"UnLua",
+			"Lua"
+		});
 
 		PublicIncludePaths.AddRange(new string[] {
 			"MyFps_Demo",

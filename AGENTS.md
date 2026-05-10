@@ -5,7 +5,7 @@
 ## 项目规则
 
 - **不论何时，忽略 `Source/FPS_Demo/` 中的内容**。该目录为遗留代码，不参与当前架构，不进行维护。
-- 所有类命名使用 `Base` 前缀，不使用 `My`/`MyFps` 前缀。
+- 所有基础类命名使用 `Base` 前缀，不使用 `My`/`MyFps` 前缀。
 - GA 能力继承 `UBaseGameplayAbility`，不直接继承 `UGameplayAbility`。
 - `ABaseWeapon` 是数据容器 + 可视化，不包含开火/换弹逻辑。
 - 弹药消耗统一为：先 `--Weapon->CurrentBullets`，GE 和 AttributeSet 同步为附加。
@@ -14,6 +14,7 @@
 - UE 5.7 中 `AbilityTags` 已废弃，使用 `SetAssetTags()`。
 - `ApplyGameplayEffectSpecToTarget` 最后一个参数是 `FGameplayAbilityTargetDataHandle&`，不直接传 ASC。对目标 ASC 的 GE 用 `TargetASC->ApplyGameplayEffectSpecToSelf()`。
 - 类重命名后需在 `Config/DefaultEngine.ini` 添加 `ActiveClassRedirects`。
+- 所有 Widget 子类中，局部变量名 `Slot` 会隐藏 `UWidget::Slot` 成员，触发 C4458。统一用 `CanvasSlot`。
 
 ## 文件索引
 
@@ -23,4 +24,7 @@
 | `DESIGN.md` | 架构总览、目录结构、GAS 组件、能力设计、数据流、设计模式、类图、扩展指南、构建说明 |
 | `Docs/Design/Fire/FireDesign.md` | 开火能力的设计过程与踩坑记录 |
 | `Docs/Design/Reload/ReloadDesign.md` | 换弹能力的设计过程与踩坑记录 |
+| `Docs/Design/UnLua/UnLuaDesign.md` | UnLua 集成设计、兼容性修复与绑定方式 |
+| `Docs/Design/UI/UIDesign.md` | 弹药 HUD 设计与 UnLua + UMG 踩坑记录 |
+| `Docs/Design/Crosshair/CrosshairDesign.md` | 动态准星设计：十字+点、屏幕中心、移动/开火散度 |
 | `AGENTS.md` | 本文件 — 项目规则与规范 |

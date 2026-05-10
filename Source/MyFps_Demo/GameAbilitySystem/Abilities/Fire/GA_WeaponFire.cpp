@@ -34,6 +34,11 @@ void UGA_WeaponFire::ActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 		return;
 	}
 
+	if (ABaseWeapon* Weapon = GetWeapon())
+	{
+		Weapon->bIsFiring = true;
+	}
+
 	bInputReleased = false;
 
 	UAbilityTask_WaitInputRelease* WaitRelease = UAbilityTask_WaitInputRelease::WaitInputRelease(this);
@@ -45,6 +50,11 @@ void UGA_WeaponFire::ActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 
 void UGA_WeaponFire::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
+	if (ABaseWeapon* Weapon = GetWeapon())
+	{
+		Weapon->bIsFiring = false;
+	}
+
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 

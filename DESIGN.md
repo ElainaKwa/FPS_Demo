@@ -30,11 +30,12 @@ FPS_Demo.uproject
 | GameplayEffect | 弹药消耗、弹药补充、伤害数值的运行时修改 |
 | AttributeSet | 可网络复制的弹药属性（CurrentAmmo、MaxAmmo） |
 | AbilityTask | 异步等待输入释放、计时延迟等能力逻辑编排 |
+| UnLua | Lua 脚本绑定、热重载、C++/Lua 混合开发 |
 
 **模块依赖** (`MyFps_Demo.Build.cs`):
 ```
 Core, CoreUObject, Engine, InputCore, EnhancedInput,
-GameplayAbilities, GameplayTasks, GameplayTags
+GameplayAbilities, GameplayTasks, GameplayTags, UnLua, Lua
 ```
 
 **目录结构**:
@@ -43,6 +44,23 @@ MyFps_Demo/
 ├── BaseCharacter.h/.cpp           # 角色：ASC + AttributeSet + 武器持有者接口
 ├── BaseGameMode.h/.cpp
 ├── BasePlayerController.h/.cpp
+├── UI/
+│   ├── BulletCounter/
+│   │   └── BaseBulletCounterWidget.h/.cpp   # 弹药计数 HUD（Config 配置 BP 路径）
+│   └── Crosshair/
+│       ├── BaseCrosshairWidget.h/.cpp         # 抽象基类：角色绑定、散度计算
+│       ├── Crosshair_CrossDot.h/.cpp          # 十字+点型实现（BindWidget ×5）
+│       ├── CrosshairSettingsTypes.h           # FCrosshairSettings + USaveGame
+│       └── CrosshairSettingsSubsystem.h/.cpp  # 全局准星设置单例（Config 配置 BP 路径）
+├── GameSettings/                                # 游戏设置系统（详见 Docs/Design/Settings/）
+│   ├── GameSettingsSubsystem.h/.cpp            # 中央单例：统一 Save/Load/Apply/Revert
+│   ├── GameSettingsCategory.h/.cpp             # 抽象基类：Pending/Current 双数据
+│   ├── GameSettingsTypes.h                     # FGameSettingsSaveData + UGameSettingsSaveGame
+│   ├── GameSettingsWidgetBase.h/.cpp           # 设置面板 Widget 基类
+│   └── Categories/
+│       ├── Crosshair/                          # 准星设置 Category
+│       ├── Audio/                              # 音频设置 Category（计划中）
+│       └── UI/                                 # UI 设置 Category（计划中）
 ├── Weapons/
 │   ├── BaseWeapon.h/.cpp           # 武器（数据容器 + 可视化）
 │   ├── BaseWeaponHolder.h/.cpp     # 武器持有者接口（IBaseWeaponHolder）
@@ -476,3 +494,290 @@ ABaseCharacter::OnSwitchWeapon()
 - **GameplayEffect 是 Blueprint 资产**：伤害、弹药消耗、弹药补充的 GE 需要在编辑器中创建，因为 UE 的 GameplayEffect 通常定义在 Blueprint 中。
 - **网络复制**：AttributeSet 已标记 `Replicated`，ASC 设置为 `Mixed` 复制模式。属性修改通过 GE 自动网络同步。
 - **AttributeSet 与 Weapon.CurrentBullets 的同步**：开火/换弹能力在修改 AttributeSet 后会立即同步到 `Weapon.CurrentBullets`，确保 HUD 等依赖 Weapon 数据的代码仍能正常工作。
+
+---
+
+## 9. 开发路线图
+
+> 目标：将项目逐步迭代为**技能射击型 FPS**，具备投掷物、位移技能，以**死斗模式**作为功能展示载体。
+
+### 9.1 依赖关系总览
+
+```
+Phase 1 (生命/伤害)        ← 基础，一切前提
+  ├── Phase 2 (ADS)        ← 独立，建议紧接 Phase 1
+  ├── Phase 3 (近战)       ← 依赖 Phase 1 的伤害
+  ├── Phase 4 (投掷物)     ← 依赖 Phase 1 的伤害
+  └── Phase 5 (位移)       ← 依赖 Phase 1 的 AttributeSet 模式
+         └── Phase 6 (死斗) ← 依赖所有 Phase
+                └── Phase 7 (HUD 打磨)
+```
+
+Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
+
+### 9.2 Phase 1：角色生命 & 伤害系统
+
+> 没有生命值，角色死不了；角色死不了，后面所有技能和死斗模式都无从验证。
+
+**1.1 BaseCharacterAttributeSet**
+
+- 属性：`Health` / `MaxHealth`（网络复制，钳制 [0, MaxHealth]）
+- 属性：`Shield` / `MaxShield`（可选，给技能系统留接口）
+- `PreAttributeChange`：钳制逻辑
+- `PostGameplayEffectExecute`：Health ≤ 0 时广播 `Event.Death`
+- `OnRep_` 回调驱动 UI 刷新
+
+**1.2 伤害 GE 路由重构**
+
+- 当前 `GA_WeaponFire` 的 `GE_Damage` 需作用于目标的 CharacterAttributeSet（而非 WeaponAttributeSet）
+- 伤害数值通过 `SetByCaller(Data.Damage)` 传入
+- 目标有 ASC → `TargetASC->ApplyGameplayEffectSpecToSelf()`
+- 目标无 ASC → 保留 `ApplyDamage` 兼容路径
+
+**1.3 死亡处理**
+
+- 新增 `State.Dead` GameplayTag
+- Health = 0 时：施加 `State.Dead`（阻塞所有能力激活）
+- 角色进入死亡状态：禁用输入、开启 Ragdoll、隐藏武器
+- 通知 GameMode 处理击杀事件
+
+**1.4 伤害反馈**
+
+- 命中标记（Hit Marker）：准星变色/扩散
+- 受击方向指示器：屏幕红色边缘闪烁
+- 伤害数字浮动文本（可选，后期做）
+
+### 9.3 Phase 2：ADS 瞄准
+
+> 在现有武器系统上最自然的扩展，难度适中，能验证"添加新能力"的完整流程。
+
+**2.1 GA_WeaponADS 能力**
+
+- `InstancedPerActor`
+- 按住激活、松开取消（与 Fire 类似的 WaitInputRelease 模式）
+- 激活时施加 `State.ADS` 标签
+- `ActivationBlockedTags`：`State.Reloading`, `State.Throwing`
+
+**2.2 ADS 视觉系统**
+
+- FOV 平滑过渡（90° → 武器配置的 ADSFOV，如 70°）
+- 武器吸附到 ADS 位置（武器骨骼 Socket/Transform 偏移）
+- 准星在 ADS 时隐藏
+
+**2.3 ADS GameplayEffect**
+
+- `GE_ADSSpreadReduction`：降低 `AimVariance`（精度提升）
+- `GE_ADSMovementSlow`：降低移动速度
+- `State.ADS` 阻塞：冲刺、位移技能
+
+**2.4 武器侧配置扩展**
+
+- `ABaseWeapon` 新增：`ADSFOV`, `ADSTransitionTime`, `ADSSocketName`, `ADSMontage`
+- `GetEffectiveADSSpread()` 汇总配件加成
+
+### 9.4 Phase 3：近战攻击
+
+> 填补近距离战斗空缺，实现简单，同时验证"非武器能力"的模式。
+
+**3.1 GA_MeleeAttack 能力**
+
+- `InstancedPerActor`
+- 短冷却（0.5s~1s）
+- `ActivationBlockedTags`：`State.Firing`, `State.Reloading`, `State.Throwing`, `State.Dashing`
+- 激活时施加 `State.Melee`（短暂锁定其他动作）
+
+**3.2 近战检测**
+
+- 角色前方的 Box/Sphere Trace
+- 范围：武器长度或臂展（可配置）
+- 支持多目标或单目标
+
+**3.3 近战伤害 & 表现**
+
+- `GE_MeleeDamage`：固定伤害（武器配置 `MeleeDamage` 属性）
+- 击退效果（Impulse）
+- 第一人称近战动画（枪托砸 / 刀划）
+- 命中特效（火花/血液粒子）
+
+### 9.5 Phase 4：投掷物系统
+
+> 需要伤害系统支撑，是第一个"非直射"攻击方式，架构上需要新的基类。
+
+**4.1 ABaseThrowable 基类**
+
+- Actor，持有 `ProjectileMovementComponent` 或自定义抛物线
+- 数据：`FuseTime`（引信时间）、`ThrowForce`、`ThrowAngle`
+- 视觉：投掷物网格、拖尾特效
+- `OnFuseExpired()`：虚函数，子类实现爆炸/生效逻辑
+
+**4.2 投掷物库存**
+
+- `ABaseCharacter` 新增：`CurrentThrowableClass`, `ThrowableCount`, `MaxThrowableCount`
+- 可在武器切换逻辑旁增加投掷物切换（或简化为单一种类）
+- 拾取/补给恢复投掷物数量
+
+**4.3 GA_ThrowableThrow 能力**
+
+- `InstancedPerActor`
+- Spawn `ABaseThrowable` 子类 → 设置初速度（角色朝向 + 抛物线弧度）
+- 消耗 `ThrowableCount`（`GE_ThrowableCost`）
+- 激活时施加 `State.Throwing`（短暂动画锁定 ~0.5s）
+- `ActivationBlockedTags`：`State.Reloading`, `State.Melee`
+
+**4.4 破片手雷（AFragGrenade）**
+
+- `ABaseThrowable` 子类
+- `OnFuseExpired`：球形范围伤害（`ApplyRadialDamage` 或 GE）
+- 伤害衰减（距离越远伤害越低）
+- 爆炸 VFX/SFX
+
+**4.5 烟雾弹（ASmokeGrenade）**
+
+- `OnFuseExpired`：生成 `SmokeVolume`（Niagara 烟雾粒子）
+- 烟雾持续 N 秒后消散
+- 视觉遮蔽效果（纯视觉展示）
+
+**4.6 闪光弹（AFlashGrenade）**
+
+- `OnFuseExpired`：对范围内玩家做射线可见性检测
+- 命中玩家：施加 `State.Blinded` + 屏幕白屏效果（UMG 叠加层）
+- `GE_FlashEffect`：持续 2~3 秒后自动移除
+
+### 9.6 Phase 5：位移技能
+
+> 技能射击的核心特征，需要前几个阶段的 GAS 模式已经稳定，再做复杂的能力交互。
+
+**5.1 BaseMovementAttributeSet**
+
+- 属性：`Stamina` / `MaxStamina`（网络复制，钳制 [0, MaxStamina]）
+- 属性：`DashCharges` / `MaxDashCharges`
+- `GE_StaminaCost`：消耗体力
+- `GE_StaminaRegen`：体力自动回复（周期性 GE）
+- `GE_DashChargeRestore`：充能恢复（冷却式）
+
+**5.2 GA_Dash（冲刺闪避）**
+
+- `InstancedPerActor`
+- 沿移动方向（或摄像机朝向）瞬间位移
+- 实现：`LaunchCharacter()` 或 `SetWorldLocation()` + 插值
+- 位移距离：可配置（~600cm），位移耗时：0.2s~0.3s
+- 消耗 `DashCharges`（`GE_DashCost`），冷却通过 `CooldownGameplayEffectClass` 控制
+- 激活时施加 `State.Dashing`：碰撞墙壁自动取消；位移期间可施加 `GE_DashDamageReduction` 降低受到的伤害
+- `ActivationBlockedTags`：`State.Sliding`, `State.Dead`
+
+**5.3 GA_Slide（滑铲）**
+
+- `InstancedPerActor`
+- 触发条件：移动中 + 下蹲输入
+- 效果：保持当前速度进入滑行，摩擦力逐渐减速
+- 实现：修改 `CharacterMovementComponent` 的 `BrakingDecelerationWalking` 或 `GroundFriction`
+- 滑行期间相机降低
+- `State.Sliding`：持续 ~1s 或速度降至阈值以下时自动结束
+- 可从滑铲衔接：开火、投掷、Dash
+- `ActivationBlockedTags`：`State.Dashing`, 空中
+
+**5.4 GA_DoubleJump（二段跳）**
+
+- `InstancedPerActor`
+- 空中再按跳跃激活，跳跃力略低于第一段
+- 消耗少量 `Stamina`
+- `State.DoubleJumping` 标签
+- 可选扩展：Wall Jump（检测贴墙，沿墙面反弹）
+
+### 9.7 Phase 6：死斗模式
+
+> 所有功能的展示容器，需要前面的功能都就绪后才有意义。
+
+**6.1 ADeathmatchGameMode**
+
+- 继承 `ABaseGameMode`
+- 配置：击杀目标（如 25 杀）、时间限制（如 10 分钟）
+- 游戏状态：Waiting → InProgress → Ended
+- 规则：自雷扣分、击杀加分
+
+**6.2 ABasePlayerState**
+
+- 继承 `APlayerState`
+- 属性：`Kills`, `Deaths`, `Assists`, `Score`（网络复制）
+- 击杀/死亡事件委托
+- KDA 计算
+
+**6.3 出生系统**
+
+- 出生点 Actor（`APlayerStart` 的子类或自定义）
+- 随机选择出生点
+- 出生保护：短暂无敌（`State.SpawnProtection`，2~3 秒后自动移除）
+- 防守出生：不在敌人视野/近距离内出生
+
+**6.4 重生逻辑**
+
+- 死亡 → 观战（跟随击杀者或自由观战）→ 倒计时 → 重生
+- 重生时恢复：满血、满弹药、重置能力冷却
+- 重生时重新装备默认武器
+
+**6.5 击杀信息 UI**
+
+- 击杀信息流："PlayerA [武器图标] PlayerB"
+- 自击杀高亮、击杀自己高亮
+- 滚动列表，数秒后淡出
+
+**6.6 计分板 UI**
+
+- Tab 键呼出
+- 显示所有玩家 KDA/分数
+- 排序：分数 > 击杀 > 死亡
+
+**6.7 比赛结束**
+
+- 达到击杀目标或时间结束 → 进入结算画面
+- 显示 MVP、个人战绩
+- 倒计时后自动开始新局或返回大厅
+
+### 9.8 Phase 7：HUD 完善 & 打磨
+
+**7.1 生命/护盾条**
+
+- 屏幕底部或左下角
+- 低血量时屏幕边缘红色脉冲
+
+**7.2 技能冷却指示器**
+
+- Dash/投掷物 图标 + 冷却扫光动画
+- 充能层数显示（Dash 充能数、手雷数量）
+
+**7.3 动态准星** ✅ 已实现
+
+- ✅ 根据移动/开火/武器散布动态扩张收缩（十字+中心点，三因子加权）
+- 命中反馈（准星变红/X）—— 规划中
+- 不同武器不同准星样式 —— 规划中
+
+**7.4 小地图（可选）**
+
+- 俯视图 + 玩家位置标记
+- 显示队友/最近交战位置
+
+### 9.9 新增 GameplayTags 预览
+
+| Tag | 类型 | 归属 Phase |
+|-----|------|-----------|
+| `State.Dead` | 状态 | 1 |
+| `Event.Death` | 事件 | 1 |
+| `Ability.ADS` | 能力 | 2 |
+| `State.ADS` | 状态 | 2 |
+| `Ability.Melee` | 能力 | 3 |
+| `State.Melee` | 状态 | 3 |
+| `Ability.Throw` | 能力 | 4 |
+| `State.Throwing` | 状态 | 4 |
+| `State.Blinded` | 状态 | 4 |
+| `Ability.Dash` | 能力 | 5 |
+| `State.Dashing` | 状态 | 5 |
+| `Ability.Slide` | 能力 | 5 |
+| `State.Sliding` | 状态 | 5 |
+| `State.SpawnProtection` | 状态 | 6 |
+
+### 9.10 新增 AttributeSet 预览
+
+| AttributeSet | 属性 | 归属 Phase |
+|---|---|---|
+| `BaseCharacterAttributeSet` | Health, MaxHealth, Shield, MaxShield | 1 |
+| `BaseMovementAttributeSet` | Stamina, MaxStamina, DashCharges, MaxDashCharges | 5 |
