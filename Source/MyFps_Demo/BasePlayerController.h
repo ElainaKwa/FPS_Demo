@@ -5,6 +5,8 @@
 #include "BasePlayerController.generated.h"
 
 class UBaseBulletCounterWidget;
+class UBaseCrosshairWidget;
+class UCrosshairSettingsSubsystem;
 
 UCLASS()
 class MYFPS_DEMO_API ABasePlayerController : public APlayerController
@@ -15,5 +17,15 @@ protected:
 	virtual void BeginPlay() override;
 
 	UPROPERTY()
+	FString BulletCounterWidgetClassPath;
+
+	UPROPERTY()
 	TObjectPtr<UBaseBulletCounterWidget> BulletCounterWidget;
+
+	UPROPERTY()
+	TObjectPtr<UBaseCrosshairWidget> CrosshairWidget;
+
+public:
+	UFUNCTION(BlueprintCallable, Category = "Crosshair")
+	void SetCrosshairType(FName TypeName);
 };

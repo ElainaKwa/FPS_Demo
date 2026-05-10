@@ -51,6 +51,8 @@ public:
 
 	bool bIsReloading = false;
 
+	bool bIsFiring = false;
+
 	// ---- Damage ----
 
 	UPROPERTY(EditAnywhere, Category = "Damage", meta = (ClampMin = 0.0f, ClampMax = 1000.0f))

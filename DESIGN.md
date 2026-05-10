@@ -44,6 +44,23 @@ MyFps_Demo/
 ├── BaseCharacter.h/.cpp           # 角色：ASC + AttributeSet + 武器持有者接口
 ├── BaseGameMode.h/.cpp
 ├── BasePlayerController.h/.cpp
+├── UI/
+│   ├── BulletCounter/
+│   │   └── BaseBulletCounterWidget.h/.cpp   # 弹药计数 HUD（Config 配置 BP 路径）
+│   └── Crosshair/
+│       ├── BaseCrosshairWidget.h/.cpp         # 抽象基类：角色绑定、散度计算
+│       ├── Crosshair_CrossDot.h/.cpp          # 十字+点型实现（BindWidget ×5）
+│       ├── CrosshairSettingsTypes.h           # FCrosshairSettings + USaveGame
+│       └── CrosshairSettingsSubsystem.h/.cpp  # 全局准星设置单例（Config 配置 BP 路径）
+├── GameSettings/                                # 游戏设置系统（详见 Docs/Design/Settings/）
+│   ├── GameSettingsSubsystem.h/.cpp            # 中央单例：统一 Save/Load/Apply/Revert
+│   ├── GameSettingsCategory.h/.cpp             # 抽象基类：Pending/Current 双数据
+│   ├── GameSettingsTypes.h                     # FGameSettingsSaveData + UGameSettingsSaveGame
+│   ├── GameSettingsWidgetBase.h/.cpp           # 设置面板 Widget 基类
+│   └── Categories/
+│       ├── Crosshair/                          # 准星设置 Category
+│       ├── Audio/                              # 音频设置 Category（计划中）
+│       └── UI/                                 # UI 设置 Category（计划中）
 ├── Weapons/
 │   ├── BaseWeapon.h/.cpp           # 武器（数据容器 + 可视化）
 │   ├── BaseWeaponHolder.h/.cpp     # 武器持有者接口（IBaseWeaponHolder）
@@ -728,11 +745,11 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - Dash/投掷物 图标 + 冷却扫光动画
 - 充能层数显示（Dash 充能数、手雷数量）
 
-**7.3 动态准星**
+**7.3 动态准星** ✅ 已实现
 
-- 根据后坐力/移动/ADS 动态扩张收缩
-- 命中反馈（准星变红/X）
-- 不同武器不同准星样式
+- ✅ 根据移动/开火/武器散布动态扩张收缩（十字+中心点，三因子加权）
+- 命中反馈（准星变红/X）—— 规划中
+- 不同武器不同准星样式 —— 规划中
 
 **7.4 小地图（可选）**
 
