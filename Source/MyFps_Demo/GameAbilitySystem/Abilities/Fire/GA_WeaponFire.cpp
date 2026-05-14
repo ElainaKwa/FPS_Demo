@@ -3,13 +3,13 @@
 #include "BaseWeaponAttributeSet.h"
 #include "BaseGameplayTags.h"
 #include "BaseWeapon.h"
+#include "BaseCharacter.h"
 #include "BaseWeaponHolder.h"
 #include "AbilitySystemComponent.h"
-#include "AbilitySystemBlueprintLibrary.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
-#include "Engine/DamageEvents.h"
-#include "GameFramework/Pawn.h"
+#include "Engine/Engine.h"
+#include "DrawDebugHelpers.h"
 
 UGA_WeaponFire::UGA_WeaponFire()
 {
@@ -100,26 +100,35 @@ void UGA_WeaponFire::PerformFire()
 		QueryParams.AddIgnoredActor(OwnerActor->GetOwner());
 	}
 
+	FCollisionObjectQueryParams ObjectParams;
+	ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
+	ObjectParams.AddObjectTypesToQuery(ECC_WorldStatic);
+	ObjectParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+
 	FHitResult Hit;
-	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, MuzzleLoc, TraceEnd, ECC_Visibility, QueryParams);
+	const bool bHit = GetWorld()->LineTraceSingleByObjectType(Hit, MuzzleLoc, TraceEnd, ObjectParams, QueryParams);
+
+	DrawDebugLine(GetWorld(), MuzzleLoc, bHit ? Hit.ImpactPoint : TraceEnd, bHit ? FColor::Green : FColor::Red, false, 0.5f, 0, 1.0f);
 
 	if (bHit && Hit.GetActor())
 	{
 		const float Damage = Weapon->GetEffectiveDamage();
+		AActor* HitTarget = Hit.GetActor();
 
-		if (UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Hit.GetActor()))
+		if (ABaseCharacter* TargetChar = Cast<ABaseCharacter>(HitTarget))
 		{
-			FGameplayEffectSpecHandle DamageSpec = MakeOutgoingGameplayEffectSpec(DamageEffectClass, GetAbilityLevel());
-			if (DamageSpec.IsValid())
+			if (UAbilitySystemComponent* TargetASC = TargetChar->GetAbilitySystemComponent())
 			{
-				DamageSpec.Data->SetSetByCallerMagnitude(BaseGameplayTags::Data_Damage, Damage);
-				TargetASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
+				if (DamageEffectClass)
+				{
+					FGameplayEffectSpecHandle DamageSpec = MakeOutgoingGameplayEffectSpec(DamageEffectClass, GetAbilityLevel());
+					if (DamageSpec.IsValid())
+					{
+						DamageSpec.Data->SetSetByCallerMagnitude(BaseGameplayTags::Data_Damage, Damage);
+						TargetASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
+					}
+				}
 			}
-		}
-		else
-		{
-			FPointDamageEvent DamageEvent(Damage, Hit, SpreadDir, Weapon->DamageTypeClass);
-			Hit.GetActor()->TakeDamage(Damage, DamageEvent, GetActorInfo().PlayerController.Get(), Weapon);
 		}
 	}
 

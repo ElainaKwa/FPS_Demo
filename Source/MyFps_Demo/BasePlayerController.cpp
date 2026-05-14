@@ -2,6 +2,8 @@
 #include "UI/BulletCounter/BaseBulletCounterWidget.h"
 #include "UI/Crosshair/BaseCrosshairWidget.h"
 #include "UI/Crosshair/CrosshairSettingsSubsystem.h"
+#include "UI/Health/BaseHealthBarWidget.h"
+#include "UI/Stamina/BaseStaminaBarWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Misc/ConfigCacheIni.h"
 
@@ -34,6 +36,50 @@ void ABasePlayerController::BeginPlay()
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("BasePlayerController: BulletCounterWidgetClassPath is not configured"));
+	}
+
+	// Health bar widget
+	if (HealthBarWidgetClassPath.IsEmpty())
+	{
+		FConfigFile ConfigFile;
+		ConfigFile.Read(*(FPaths::ProjectConfigDir() / TEXT("DefaultGame.ini")));
+		ConfigFile.GetString(TEXT("/Script/MyFps_Demo.ABasePlayerController"),
+			TEXT("HealthBarWidgetClassPath"), HealthBarWidgetClassPath);
+	}
+
+	if (!HealthBarWidgetClassPath.IsEmpty())
+	{
+		UClass* Class = LoadClass<UBaseHealthBarWidget>(nullptr, *HealthBarWidgetClassPath);
+		if (Class)
+		{
+			HealthBarWidget = CreateWidget<UBaseHealthBarWidget>(this, Class);
+			if (HealthBarWidget)
+			{
+				HealthBarWidget->AddToViewport();
+			}
+		}
+	}
+
+	// Stamina bar widget
+	if (StaminaBarWidgetClassPath.IsEmpty())
+	{
+		FConfigFile ConfigFile;
+		ConfigFile.Read(*(FPaths::ProjectConfigDir() / TEXT("DefaultGame.ini")));
+		ConfigFile.GetString(TEXT("/Script/MyFps_Demo.ABasePlayerController"),
+			TEXT("StaminaBarWidgetClassPath"), StaminaBarWidgetClassPath);
+	}
+
+	if (!StaminaBarWidgetClassPath.IsEmpty())
+	{
+		UClass* Class = LoadClass<UBaseStaminaBarWidget>(nullptr, *StaminaBarWidgetClassPath);
+		if (Class)
+		{
+			StaminaBarWidget = CreateWidget<UBaseStaminaBarWidget>(this, Class);
+			if (StaminaBarWidget)
+			{
+				StaminaBarWidget->AddToViewport();
+			}
+		}
 	}
 
 	UGameInstance* GI = GetGameInstance();

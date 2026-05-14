@@ -18,23 +18,24 @@ void UBaseWeaponAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	DOREPLIFETIME_CONDITION_NOTIFY(UBaseWeaponAttributeSet, MaxAmmo, COND_None, REPNOTIFY_Always);
 }
 
-void UBaseWeaponAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
-{
-	Super::PreAttributeChange(Attribute, NewValue);
-
-	if (Attribute == GetCurrentAmmoAttribute())
-	{
-		NewValue = FMath::Clamp(NewValue, 0.0f, GetMaxAmmo());
-	}
-	if (Attribute == GetMaxAmmoAttribute())
-	{
-		NewValue = FMath::Max(NewValue, 1.0f);
-	}
-}
-
 void UBaseWeaponAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
 {
 	Super::PostGameplayEffectExecute(Data);
+
+	if (Data.Target.GetOwnerActor() && !Data.Target.GetOwnerActor()->HasAuthority())
+	{
+		return;
+	}
+
+	const FGameplayAttribute& ModifiedAttribute = Data.EvaluatedData.Attribute;
+	if (ModifiedAttribute == GetCurrentAmmoAttribute())
+	{
+		SetCurrentAmmo(FMath::Clamp(GetCurrentAmmo(), 0.0f, GetMaxAmmo()));
+	}
+	if (ModifiedAttribute == GetMaxAmmoAttribute())
+	{
+		SetMaxAmmo(FMath::Max(GetMaxAmmo(), 1.0f));
+	}
 }
 
 void UBaseWeaponAttributeSet::OnRep_CurrentAmmo(const FGameplayAttributeData& OldValue)

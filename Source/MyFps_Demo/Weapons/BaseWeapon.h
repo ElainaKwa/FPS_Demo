@@ -153,6 +153,9 @@ public:
 
 	void DeactivateWeapon();
 
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void DropToGround();
+
 	FVector GetMuzzleLocation() const;
 
 	FVector CalculateSpread(const FVector& AimDirection) const;

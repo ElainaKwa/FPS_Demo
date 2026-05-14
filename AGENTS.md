@@ -4,6 +4,7 @@
 
 ## 项目规则
 
+- 用中文回复。
 - **不论何时，忽略 `Source/FPS_Demo/` 中的内容**。该目录为遗留代码，不参与当前架构，不进行维护。
 - 所有基础类命名使用 `Base` 前缀，不使用 `My`/`MyFps` 前缀。
 - GA 能力继承 `UBaseGameplayAbility`，不直接继承 `UGameplayAbility`。
@@ -15,6 +16,7 @@
 - `ApplyGameplayEffectSpecToTarget` 最后一个参数是 `FGameplayAbilityTargetDataHandle&`，不直接传 ASC。对目标 ASC 的 GE 用 `TargetASC->ApplyGameplayEffectSpecToSelf()`。
 - 类重命名后需在 `Config/DefaultEngine.ini` 添加 `ActiveClassRedirects`。
 - 所有 Widget 子类中，局部变量名 `Slot` 会隐藏 `UWidget::Slot` 成员，触发 C4458。统一用 `CanvasSlot`。
+- **修改完 C++ 代码后，必须执行构建验证有无编译错误，有错误则直接修复。**
 
 ## 文件索引
 

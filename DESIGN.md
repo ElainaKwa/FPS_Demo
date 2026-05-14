@@ -41,7 +41,9 @@ GameplayAbilities, GameplayTasks, GameplayTags, UnLua, Lua
 **目录结构**:
 ```
 MyFps_Demo/
-├── BaseCharacter.h/.cpp           # 角色：ASC + AttributeSet + 武器持有者接口
+├── BaseCharacter.h/.cpp           # 角色基类：GAS + 血量 + 武器 + 死亡
+├── PlayerCharacter.h/.cpp         # 玩家角色：FP + 输入 + 体力
+├── BaseEnemy.h/.cpp               # 敌人角色：AI + 世界空间血条
 ├── BaseGameMode.h/.cpp
 ├── BasePlayerController.h/.cpp
 ├── UI/
@@ -83,9 +85,15 @@ MyFps_Demo/
 
 角色 Created 时作为子对象创建，`BeginPlay` 中调用 `InitAbilityActorInfo(this, this)` 初始化。持有当前武器引用，负责在武器切换时更新能力可访问的武器数据。在服务器端通过 `GrantDefaultAbilities()` 授予 Fire 和 Reload 能力 Spec。
 
-**AttributeSet (`UBaseWeaponAttributeSet`)**
+**AttributeSet**
 
-仅包含两个弹药属性：
+| AttributeSet | 属性 | 所属类 |
+|---|---|---|
+| `UBaseHealthAttributeSet` | Health, MaxHealth, IncomingDamage, IncomingHeal | ABaseCharacter |
+| `UBaseStaminaAttributeSet` | Stamina, MaxStamina, IncomingStaminaCost | APlayerCharacter |
+| `UBaseWeaponAttributeSet` | CurrentAmmo, MaxAmmo | ABaseCharacter |
+
+通过 GameplayEffect 进行修改：
 - `CurrentAmmo`（float，网络复制，钳制范围 [0, MaxAmmo]）
 - `MaxAmmo`（float，网络复制，最低 1.0）
 
@@ -120,9 +128,8 @@ ActivateAbility()
 PerformFire()
   ├─ 从 AttributeSet 读取 CurrentAmmo → ≤0 则广播 Event.OutOfAmmo 并结束
   ├─ 从武器获取 MuzzleLocation / TargetLocation / Spread
-  ├─ LineTrace 检测命中
-  │   ├─ 命中目标有 ASC → ApplyGameplayEffectSpecToSelf (GE_Damage)
-  │   └─ 命中目标无 ASC → 回退到 ApplyDamage（兼容旧 NPC）
+  ├─ LineTraceSingleByObjectType (Pawn + WorldStatic + WorldDynamic) 检测命中
+  │   └─ 命中 ABaseCharacter → Cast 获取 ASC → ApplyGameplayEffectSpecToSelf (GE_Damage)
   ├─ 播放 FiringMontage / 施加后坐力 / 更新 HUD
   ├─ ApplyGameplayEffectSpecToOwner (GE_AmmoCost) → 消耗弹药
   ├─ 同步 Weapon.CurrentBullets ← AttributeSet.GetCurrentAmmo()
@@ -220,15 +227,24 @@ GA_WeaponFire                     ABaseCharacter
 ### 3.5 组件模式 — ASC + AttributeSet
 
 ```
-ABaseCharacter
-  ├── UBaseAbilitySystemComponent  ← 能力管理
-  └── UBaseWeaponAttributeSet      ← 属性存储
+ABaseCharacter                      ← GAS + 血量 + 武器 + 死亡
+├── UBaseAbilitySystemComponent     ← 能力管理
+├── UBaseHealthAttributeSet         ← 生命值属性
+├── UBaseWeaponAttributeSet         ← 弹药属性
+└── 武器库存 & 切换逻辑
+
+APlayerCharacter : ABaseCharacter   ← 玩家特化
+├── USkeletalMeshComponent (FP)     ← 第一人称网格
+├── UCameraComponent                ← 第一人称相机
+├── UBaseStaminaAttributeSet        ← 体力属性
+└── Enhanced Input 绑定
+
+ABaseEnemy : ABaseCharacter         ← 敌人特化
+├── UWidgetComponent                ← 头顶血条 (世界空间)
+└── AI 逻辑 (Tick 驱动, UpdateTarget 自动寻找玩家)
 ```
 
-GAS 的核心设计模式：AbilitySystemComponent（能力管理）和 AttributeSet（属性存储）作为 Actor 的组件存在。这种分离使得：
-- 属性可以被多个能力并行修改（通过 GE 叠加）
-- 属性修改自动网络复制
-- 能力之间通过 Tag 进行阻塞/协同（如换弹时阻塞开火）
+> 旧 `UBaseCharacterAttributeSet` 保留但废弃，新增 `ActiveClassRedirects` 指向 `UBaseHealthAttributeSet`。
 
 ---
 
@@ -243,7 +259,7 @@ GAS 的核心设计模式：AbilitySystemComponent（能力管理）和 Attribut
 InputAction (FireAction, ETriggerEvent::Started)
   │
   ▼
-ABaseCharacter::OnStartFiring()
+APlayerCharacter::OnStartFiring()
   │
   ▼
 ASC->TryActivateAbility(FireHandle)
@@ -270,11 +286,10 @@ PerformFire()
   ├─ 从 Weapon 读取数据:
   │   MuzzleLocation, TargetLocation, Spread, Damage
   │
-  ├─ LineTrace (从枪口沿弹道方向)
+  ├─ LineTrace (从枪口沿弹道方向, Pawn+WorldStatic+WorldDynamic)
   │
   ├─ 命中检测:
-  │   ├─ 目标有 ASC → ApplyGameplayEffectSpecToSelf (GE_Damage, SetByCaller: Data.Damage)
-  │   └─ 目标无 ASC → UGameplayStatics::ApplyDamage()
+  │   └─ Cast<ABaseCharacter> → TargetASC->ApplyGameplayEffectSpecToSelf (GE_Damage, SetByCaller: Data.Damage)
   │
   ├─ PlayFiringMontage() ── 开火动画
   ├─ AddWeaponRecoil()    ── 镜头后坐力
@@ -312,7 +327,7 @@ WaitInputRelease Task 触发 OnInputReleased
 玩家按下 R 键 / Event.OutOfAmmo 触发
   │
   ▼
-ABaseCharacter::OnReload()
+APlayerCharacter::OnReload()
   ├─ ASC->CancelFireAbility() ── 强制中断开火
   └─ ASC->TryActivateAbility(ReloadHandle)
   │
@@ -359,7 +374,7 @@ ASC->CancelAllAbilities()
 玩家按下切换键
   │
   ▼
-ABaseCharacter::OnSwitchWeapon()
+APlayerCharacter::OnSwitchWeapon()
   │
   ├─ OwnedWeapons.Num ≤ 1 → 跳过
   │
@@ -399,22 +414,36 @@ ABaseCharacter::OnSwitchWeapon()
            └───────────────────────────────────┘
                            │ 持有
            ┌───────────────▼──────────────────┐
-           │          ABaseCharacter          │
+           │       ABaseCharacter (Abstract)   │
            │  implements IAbilitySystemInterface│
            │  implements IBaseWeaponHolder     │
            │  ├─ AbilitySystemComponent         │
+           │  ├─ HealthAttributeSet             │
            │  ├─ WeaponAttributeSet             │
            │  ├─ CurrentWeapon                  │
-           │  └─ OwnedWeapons[]                 │
+           │  ├─ OwnedWeapons[]                 │
+           │  └─ OnDeath() [virtual]            │
            └────────┬──────────────────────────┘
-                    │ 持有
+                    │ 继承
+    ┌───────────────┼──────────────────┐
+    ▼               ▼                  │
+┌───────────┐ ┌──────────────┐        │
+│APlayerChar│ │  ABaseEnemy  │        │
+│├─1P Mesh  │ │├─HealthBar   │        │
+│├─Camera   │ │├─AI Logic    │        │
+│├─Stamina  │ │└─Tick        │        │
+│└─Input    │ └──────────────┘        │
+└───────────┘                         │
+                                      │
     ┌───────────────▼──────────────────┐
     │          ABaseWeapon             │
     │  (数据容器 + 可视化)              │
     │  ├─ MagazineSize, HitDamage...    │
     │  ├─ FirstPersonMesh               │
+    │  ├─ ThirdPersonMesh               │
     │  ├─ GetMuzzleLocation()           │
     │  ├─ CalculateSpread()             │
+    │  ├─ DropToGround()                │
     │  ├─ DropMagazine()                │
     │  ├─ InsertMagazine()              │
     │  └─ CancelReloadVisuals()         │
@@ -531,14 +560,13 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 
 - 当前 `GA_WeaponFire` 的 `GE_Damage` 需作用于目标的 CharacterAttributeSet（而非 WeaponAttributeSet）
 - 伤害数值通过 `SetByCaller(Data.Damage)` 传入
-- 目标有 ASC → `TargetASC->ApplyGameplayEffectSpecToSelf()`
-- 目标无 ASC → 保留 `ApplyDamage` 兼容路径
+- 目标 ASC → `TargetASC->ApplyGameplayEffectSpecToSelf()`
 
 **1.3 死亡处理**
 
 - 新增 `State.Dead` GameplayTag
 - Health = 0 时：施加 `State.Dead`（阻塞所有能力激活）
-- 角色进入死亡状态：禁用输入、开启 Ragdoll、隐藏武器
+- 角色进入死亡状态：禁用输入、开启 Ragdoll、武器掉落至地面（DropToGround）
 - 通知 GameMode 处理击杀事件
 
 **1.4 伤害反馈**
@@ -779,5 +807,6 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 
 | AttributeSet | 属性 | 归属 Phase |
 |---|---|---|
-| `BaseCharacterAttributeSet` | Health, MaxHealth, Shield, MaxShield | 1 |
-| `BaseMovementAttributeSet` | Stamina, MaxStamina, DashCharges, MaxDashCharges | 5 |
+| `BaseHealthAttributeSet` | Health, MaxHealth, IncomingDamage, IncomingHeal | 1 (已实现) |
+| `BaseStaminaAttributeSet` | Stamina, MaxStamina, IncomingStaminaCost | 5 (已实现) |
+| `BaseWeaponAttributeSet` | CurrentAmmo, MaxAmmo | 已实现 |

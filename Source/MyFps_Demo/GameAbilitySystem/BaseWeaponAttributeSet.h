@@ -7,12 +7,6 @@
 #include "AbilitySystemComponent.h"
 #include "BaseWeaponAttributeSet.generated.h"
 
-#define ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
-	GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
-	GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
-	GAMEPLAYATTRIBUTE_VALUE_SETTER(PropertyName) \
-	GAMEPLAYATTRIBUTE_VALUE_INITTER(PropertyName)
-
 UCLASS()
 class MYFPS_DEMO_API UBaseWeaponAttributeSet : public UAttributeSet
 {
@@ -23,17 +17,15 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
-
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentAmmo, Category = "Ammo")
 	FGameplayAttributeData CurrentAmmo;
-	ATTRIBUTE_ACCESSORS(UBaseWeaponAttributeSet, CurrentAmmo)
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseWeaponAttributeSet, CurrentAmmo)
 
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MaxAmmo, Category = "Ammo")
 	FGameplayAttributeData MaxAmmo;
-	ATTRIBUTE_ACCESSORS(UBaseWeaponAttributeSet, MaxAmmo)
+	ATTRIBUTE_ACCESSORS_BASIC(UBaseWeaponAttributeSet, MaxAmmo)
 
 	UFUNCTION()
 	virtual void OnRep_CurrentAmmo(const FGameplayAttributeData& OldValue);

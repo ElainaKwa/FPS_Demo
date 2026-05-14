@@ -85,6 +85,26 @@ void ABaseWeapon::DeactivateWeapon()
 	SetActorHiddenInGame(true);
 }
 
+void ABaseWeapon::DropToGround()
+{
+	if (AActor* OwnerActor = GetOwner())
+	{
+		OwnerActor->OnDestroyed.RemoveDynamic(this, &ABaseWeapon::OnOwnerDestroyed);
+		SetOwner(nullptr);
+	}
+
+	FirstPersonMesh->SetVisibility(false);
+
+	ThirdPersonMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+	ThirdPersonMesh->SetSimulatePhysics(true);
+	ThirdPersonMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	ThirdPersonMesh->SetCollisionProfileName(FName("PhysicsActor"));
+
+	WeaponOwner = nullptr;
+
+	SetLifeSpan(60.0f);
+}
+
 FVector ABaseWeapon::GetMuzzleLocation() const
 {
 	return FirstPersonMesh->GetSocketLocation(MuzzleSocketName);
