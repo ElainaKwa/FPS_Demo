@@ -37,6 +37,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Ammo", meta = (ClampMin = 1, ClampMax = 200))
 	int32 MagazineSize = 30;
 
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentBullets)
 	int32 CurrentBullets = 0;
 
 	// ---- Fire Mode ----
@@ -144,8 +145,13 @@ protected:
 
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	UFUNCTION()
 	void OnOwnerDestroyed(AActor* DestroyedActor);
+
+	UFUNCTION()
+	void OnRep_CurrentBullets();
 
 public:
 
@@ -155,6 +161,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void DropToGround();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastDropToGroundVisuals();
 
 	FVector GetMuzzleLocation() const;
 
@@ -220,6 +229,15 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Reload")
 	void CancelReloadVisuals();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastDropMagazineVisuals(UStaticMesh* Mesh);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastInsertMagazineVisuals();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastCancelReloadVisuals();
 
 protected:
 };

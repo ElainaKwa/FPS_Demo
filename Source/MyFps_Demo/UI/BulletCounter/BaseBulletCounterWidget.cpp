@@ -3,6 +3,8 @@
 #include "Components/Border.h"
 #include "Components/CanvasPanelSlot.h"
 #include "BaseCharacter.h"
+#include "GameAbilitySystem/BaseWeaponAttributeSet.h"
+#include "AbilitySystemComponent.h"
 #include "Weapons/BaseWeapon.h"
 #include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
@@ -50,9 +52,12 @@ void UBaseBulletCounterWidget::TryBindDelegate()
 	{
 		BaseChar->OnBulletCountUpdated.AddDynamic(this, &UBaseBulletCounterWidget::OnAmmoUpdated);
 
-		int32 MaxAmmo = BaseChar->GetCurrentWeapon() ? BaseChar->GetCurrentWeapon()->GetEffectiveMagazineSize() : 0;
-		int32 CurrentAmmo = BaseChar->GetCurrentWeapon() ? BaseChar->GetCurrentWeapon()->CurrentBullets : 0;
-		UpdateAmmoDisplay(CurrentAmmo, MaxAmmo);
+		if (UAbilitySystemComponent* ASC = BaseChar->GetAbilitySystemComponent())
+		{
+			const float CurrentAmmo = ASC->GetNumericAttribute(UBaseWeaponAttributeSet::GetCurrentAmmoAttribute());
+			const float MaxAmmo = ASC->GetNumericAttribute(UBaseWeaponAttributeSet::GetMaxAmmoAttribute());
+			UpdateAmmoDisplay(static_cast<int32>(CurrentAmmo), static_cast<int32>(MaxAmmo));
+		}
 	}
 }
 

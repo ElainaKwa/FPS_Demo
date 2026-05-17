@@ -36,4 +36,6 @@ public:
 
 	UFUNCTION()
 	virtual void OnRep_MaxStamina(const FGameplayAttributeData& OldValue);
+
+	float LastStaminaConsumptionTime = 0.0f;
 };

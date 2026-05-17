@@ -5,27 +5,55 @@
 #include "Components/SphereComponent.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
+#include "Net/UnrealNetwork.h"
 
 ABaseDroppedMagazine::ABaseDroppedMagazine()
 {
 	PrimaryActorTick.bCanEverTick = false;
+	bReplicates = true;
+	SetReplicateMovement(true);
 
 	MagazineMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Magazine Mesh"));
 	RootComponent = MagazineMesh;
 	MagazineMesh->SetSimulatePhysics(true);
 	MagazineMesh->SetEnableGravity(true);
 	MagazineMesh->SetCollisionProfileName(FName("PhysicsActor"));
+	MagazineMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	MagazineMesh->SetNotifyRigidBodyCollision(true);
+}
+
+void ABaseDroppedMagazine::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ABaseDroppedMagazine, DropMesh);
+	DOREPLIFETIME(ABaseDroppedMagazine, DropVelocity);
 }
 
 void ABaseDroppedMagazine::Initialize(UStaticMesh* InMesh, const FVector& InitialVelocity)
 {
-	if (InMesh)
+	DropMesh = InMesh;
+	DropVelocity = InitialVelocity;
+
+	if (HasAuthority())
 	{
-		MagazineMesh->SetStaticMesh(InMesh);
+		OnRep_DropData();
+	}
+}
+
+void ABaseDroppedMagazine::OnRep_DropData()
+{
+	if (DropMesh)
+	{
+		MagazineMesh->SetStaticMesh(DropMesh);
 	}
 
-	MagazineMesh->SetPhysicsLinearVelocity(InitialVelocity);
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	MagazineMesh->SetPhysicsLinearVelocity(DropVelocity);
 	MagazineMesh->AddAngularImpulseInRadians(FVector(FMath::FRandRange(-3.0f, 3.0f), FMath::FRandRange(-3.0f, 3.0f), FMath::FRandRange(-3.0f, 3.0f)), NAME_None, true);
 }
 

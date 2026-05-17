@@ -12,10 +12,12 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/DamageEvents.h"
+#include "Net/UnrealNetwork.h"
 
 ABaseWeapon::ABaseWeapon()
 {
 	PrimaryActorTick.bCanEverTick = false;
+	bReplicates = true;
 
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 
@@ -40,11 +42,35 @@ ABaseWeapon::ABaseWeapon()
 	SetActorHiddenInGame(true);
 }
 
+void ABaseWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ABaseWeapon, CurrentBullets);
+}
+
+void ABaseWeapon::OnRep_CurrentBullets()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[OnRep] Weapon::CurrentBullets 复制: %d"), CurrentBullets);
+
+	if (!WeaponOwner)
+	{
+		WeaponOwner = Cast<IBaseWeaponHolder>(GetOwner());
+	}
+	if (WeaponOwner)
+	{
+		WeaponOwner->UpdateWeaponHUD(CurrentBullets, GetEffectiveMagazineSize());
+	}
+}
+
 void ABaseWeapon::BeginPlay()
 {
 	Super::BeginPlay();
 
-	GetOwner()->OnDestroyed.AddDynamic(this, &ABaseWeapon::OnOwnerDestroyed);
+	if (GetOwner())
+	{
+		GetOwner()->OnDestroyed.AddDynamic(this, &ABaseWeapon::OnOwnerDestroyed);
+	}
 
 	WeaponOwner = Cast<IBaseWeaponHolder>(GetOwner());
 
@@ -93,16 +119,25 @@ void ABaseWeapon::DropToGround()
 		SetOwner(nullptr);
 	}
 
+	WeaponOwner = nullptr;
+
+	if (HasAuthority())
+	{
+		SetLifeSpan(60.0f);
+	}
+
+	MulticastDropToGroundVisuals();
+}
+
+void ABaseWeapon::MulticastDropToGroundVisuals_Implementation()
+{
 	FirstPersonMesh->SetVisibility(false);
 
 	ThirdPersonMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 	ThirdPersonMesh->SetSimulatePhysics(true);
 	ThirdPersonMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	ThirdPersonMesh->SetCollisionProfileName(FName("PhysicsActor"));
-
-	WeaponOwner = nullptr;
-
-	SetLifeSpan(60.0f);
+	ThirdPersonMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 }
 
 FVector ABaseWeapon::GetMuzzleLocation() const
@@ -295,7 +330,7 @@ void ABaseWeapon::DropMagazine()
 		MeshToDrop = MagAttachment->GetAttachmentMesh()->GetStaticMesh();
 	}
 
-	if (MeshToDrop)
+	if (MeshToDrop && HasAuthority())
 	{
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -308,25 +343,41 @@ void ABaseWeapon::DropMagazine()
 			DroppedMag->Initialize(MeshToDrop, SpawnVelocity);
 			DroppedMag->GetMagazineMesh()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 		}
-
-		USceneComponent* ArmMesh = FirstPersonMesh->GetAttachParent();
-		if (ArmMesh)
-		{
-			LeftHandMagazineMesh->SetStaticMesh(MeshToDrop);
-			LeftHandMagazineMesh->SetVisibility(true);
-
-			const FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, false);
-			LeftHandMagazineMesh->AttachToComponent(ArmMesh, AttachRules, LeftHandSocketName);
-		}
 	}
 
+	MulticastDropMagazineVisuals(MeshToDrop);
+}
+
+void ABaseWeapon::InsertMagazine()
+{
+	MulticastInsertMagazineVisuals();
+}
+
+void ABaseWeapon::CancelReloadVisuals()
+{
+	MulticastCancelReloadVisuals();
+}
+
+void ABaseWeapon::MulticastDropMagazineVisuals_Implementation(UStaticMesh* Mesh)
+{
+	USceneComponent* ArmMesh = FirstPersonMesh->GetAttachParent();
+	if (ArmMesh && Mesh)
+	{
+		LeftHandMagazineMesh->SetStaticMesh(Mesh);
+		LeftHandMagazineMesh->SetVisibility(true);
+
+		const FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, false);
+		LeftHandMagazineMesh->AttachToComponent(ArmMesh, AttachRules, LeftHandSocketName);
+	}
+
+	ABaseWeaponAttachment* MagAttachment = GetAttachment(EBaseAttachmentSlot::Magazine);
 	if (MagAttachment)
 	{
 		MagAttachment->GetAttachmentMesh()->SetVisibility(false);
 	}
 }
 
-void ABaseWeapon::InsertMagazine()
+void ABaseWeapon::MulticastInsertMagazineVisuals_Implementation()
 {
 	LeftHandMagazineMesh->SetVisibility(false);
 	LeftHandMagazineMesh->DetachFromComponent(FDetachmentTransformRules(EDetachmentRule::KeepWorld, false));
@@ -339,7 +390,7 @@ void ABaseWeapon::InsertMagazine()
 	}
 }
 
-void ABaseWeapon::CancelReloadVisuals()
+void ABaseWeapon::MulticastCancelReloadVisuals_Implementation()
 {
 	LeftHandMagazineMesh->SetVisibility(false);
 	LeftHandMagazineMesh->DetachFromComponent(FDetachmentTransformRules(EDetachmentRule::KeepWorld, false));

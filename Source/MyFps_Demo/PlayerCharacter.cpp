@@ -3,8 +3,10 @@
 #include "PlayerCharacter.h"
 #include "Weapons/BaseWeapon.h"
 #include "GameAbilitySystem/BaseAbilitySystemComponent.h"
+#include "GameAbilitySystem/BaseGameplayTags.h"
 #include "GameAbilitySystem/BaseStaminaAttributeSet.h"
 #include "GameAbilitySystem/BaseHealthAttributeSet.h"
+#include "GameAbilitySystem/BaseMovementAttributeSet.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
@@ -15,6 +17,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
+#include "Net/UnrealNetwork.h"
 
 APlayerCharacter::APlayerCharacter()
 {
@@ -25,6 +28,7 @@ APlayerCharacter::APlayerCharacter()
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
 	GetCharacterMovement()->JumpZVelocity = 420.0f;
 	GetCharacterMovement()->AirControl = 0.2f;
+	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
 	GetMesh()->bOwnerNoSee = true;
 	GetMesh()->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::WorldSpaceRepresentation);
@@ -45,11 +49,38 @@ APlayerCharacter::APlayerCharacter()
 	FirstPersonCamera->bUsePawnControlRotation = true;
 
 	StaminaAttributeSet = CreateDefaultSubobject<UBaseStaminaAttributeSet>(TEXT("StaminaAttributeSet"));
+
+	MovementAttributeSet = CreateDefaultSubobject<UBaseMovementAttributeSet>(TEXT("MovementAttributeSet"));
+}
+
+void APlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(APlayerCharacter, bIsSprinting);
+	DOREPLIFETIME(APlayerCharacter, bIsReloading);
+}
+
+void APlayerCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (StaminaAttributeSet)
+	{
+		const float Target = StaminaAttributeSet->GetStamina();
+		const float MaxTarget = StaminaAttributeSet->GetMaxStamina();
+		const float InterpSpeed = 10.0f;
+		SmoothedStamina = FMath::FInterpTo(SmoothedStamina, Target, DeltaTime, InterpSpeed);
+		OnStaminaUpdated.Broadcast(SmoothedStamina, MaxTarget);
+	}
 }
 
 void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
+
+	SmoothedStamina = StaminaAttributeSet ? StaminaAttributeSet->GetStamina() : 0.0f;
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
@@ -60,6 +91,17 @@ void APlayerCharacter::BeginPlay()
 				Subsystem->AddMappingContext(DefaultMappingContext, 0);
 			}
 		}
+	}
+}
+
+void APlayerCharacter::InitAbilitySystem()
+{
+	Super::InitAbilitySystem();
+
+	if (AbilitySystemComponent && HasAuthority())
+	{
+		AbilitySystemComponent->GrantMovementAbilities();
+		AbilitySystemComponent->GrantPassiveAbilities();
 	}
 }
 
@@ -89,11 +131,21 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		}
 		if (ReloadAction)
 		{
-			EnhancedInput->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &APlayerCharacter::OnReload);
+			EnhancedInput->BindAction(ReloadAction, ETriggerEvent::Started, this, &APlayerCharacter::OnReload);
 		}
 		if (SwitchWeaponAction)
 		{
 			EnhancedInput->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &APlayerCharacter::OnSwitchWeapon);
+		}
+		if (CrouchAction)
+		{
+			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &APlayerCharacter::OnCrouchStarted);
+			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Completed, this, &APlayerCharacter::OnCrouchEnded);
+		}
+		if (SprintAction)
+		{
+			EnhancedInput->BindAction(SprintAction, ETriggerEvent::Started, this, &APlayerCharacter::OnSprintStarted);
+			EnhancedInput->BindAction(SprintAction, ETriggerEvent::Completed, this, &APlayerCharacter::OnSprintEnded);
 		}
 	}
 }
@@ -126,7 +178,7 @@ void APlayerCharacter::OnLook(const FInputActionValue& Value)
 
 void APlayerCharacter::OnJumpStarted()
 {
-	Jump();
+	ServerJump();
 }
 
 void APlayerCharacter::OnJumpEnded()
@@ -136,13 +188,42 @@ void APlayerCharacter::OnJumpEnded()
 
 void APlayerCharacter::OnStartFiring()
 {
-	if (AbilitySystemComponent)
-	{
-		AbilitySystemComponent->TryActivateAbility(AbilitySystemComponent->GetFireAbilityHandle());
-	}
+	ServerStartFiring();
 }
 
 void APlayerCharacter::OnStopFiring()
+{
+	ServerStopFiring();
+}
+
+void APlayerCharacter::OnReload()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Input] OnReload 客户端按下换弹键"));
+	ServerReload();
+}
+
+void APlayerCharacter::OnSwitchWeapon()
+{
+	ServerSwitchWeapon();
+}
+
+void APlayerCharacter::ServerStartFiring_Implementation()
+{
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	if (AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Sprinting))
+	{
+		AbilitySystemComponent->CancelAbilityHandle(AbilitySystemComponent->GetSprintAbilityHandle());
+		return;
+	}
+
+	AbilitySystemComponent->TryActivateAbility(AbilitySystemComponent->GetFireAbilityHandle());
+}
+
+void APlayerCharacter::ServerStopFiring_Implementation()
 {
 	if (AbilitySystemComponent)
 	{
@@ -150,14 +231,26 @@ void APlayerCharacter::OnStopFiring()
 	}
 }
 
-void APlayerCharacter::OnReload()
+void APlayerCharacter::ServerReload_Implementation()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[ServerReload] RPC 收到 | Authority=%d"), HasAuthority() ? 1 : 0);
+
 	if (!AbilitySystemComponent)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerReload] 失败: ASC 为 null"));
 		return;
 	}
 
+	const FGameplayAbilitySpecHandle FireHandle = AbilitySystemComponent->GetFireAbilityHandle();
+	UE_LOG(LogTemp, Warning, TEXT("[ServerReload] FireHandle=%d ReloadHandle=%d"),
+		FireHandle.IsValid() ? 1 : 0, AbilitySystemComponent->GetReloadAbilityHandle().IsValid() ? 1 : 0);
+
 	AbilitySystemComponent->CancelFireAbility();
+
+	if (AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Reloading))
+	{
+		return;
+	}
 
 	FGameplayAbilitySpecHandle Handle = AbilitySystemComponent->GetReloadAbilityHandle();
 	if (!Handle.IsValid())
@@ -166,13 +259,20 @@ void APlayerCharacter::OnReload()
 		Handle = AbilitySystemComponent->GetReloadAbilityHandle();
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("[ServerReload] Handle.IsValid=%d"), Handle.IsValid());
+
 	if (Handle.IsValid())
 	{
-		AbilitySystemComponent->TryActivateAbility(Handle);
+		const bool bSuccess = AbilitySystemComponent->TryActivateAbility(Handle);
+		UE_LOG(LogTemp, Warning, TEXT("[ServerReload] TryActivateAbility 返回: %d"), bSuccess);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerReload] 失败: ReloadHandle 无效"));
 	}
 }
 
-void APlayerCharacter::OnSwitchWeapon()
+void APlayerCharacter::ServerSwitchWeapon_Implementation()
 {
 	if (OwnedWeapons.Num() <= 1)
 	{
@@ -223,21 +323,44 @@ FVector APlayerCharacter::GetWeaponTargetLocation() const
 
 void APlayerCharacter::PlayFiringMontage(UAnimMontage* Montage)
 {
-	if (Montage && FirstPersonMesh->GetAnimInstance())
-	{
-		FirstPersonMesh->GetAnimInstance()->Montage_Play(Montage);
-	}
+	MulticastPlayFiringMontage(Montage);
 }
 
 void APlayerCharacter::PlayReloadMontage(UAnimMontage* Montage)
 {
+	MulticastPlayReloadMontage(Montage);
+}
+
+void APlayerCharacter::AddWeaponRecoil(float RecoilAmount)
+{
+	MulticastAddWeaponRecoil(RecoilAmount);
+}
+
+void APlayerCharacter::MulticastPlayFiringMontage_Implementation(UAnimMontage* Montage)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Multicast] PlayFiring | Montage=%s | HasAnim=%d"),
+		Montage ? *Montage->GetName() : TEXT("null"),
+		FirstPersonMesh->GetAnimInstance() ? 1 : 0);
+
 	if (Montage && FirstPersonMesh->GetAnimInstance())
 	{
 		FirstPersonMesh->GetAnimInstance()->Montage_Play(Montage);
 	}
 }
 
-void APlayerCharacter::AddWeaponRecoil(float RecoilAmount)
+void APlayerCharacter::MulticastPlayReloadMontage_Implementation(UAnimMontage* Montage)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Multicast] PlayReload | Montage=%s | HasAnim=%d"),
+		Montage ? *Montage->GetName() : TEXT("null"),
+		FirstPersonMesh->GetAnimInstance() ? 1 : 0);
+
+	if (Montage && FirstPersonMesh->GetAnimInstance())
+	{
+		FirstPersonMesh->GetAnimInstance()->Montage_Play(Montage, 1.0f, EMontagePlayReturnType::MontageLength, 0.1f);
+	}
+}
+
+void APlayerCharacter::MulticastAddWeaponRecoil_Implementation(float RecoilAmount)
 {
 	AddControllerPitchInput(RecoilAmount);
 }
@@ -262,8 +385,256 @@ void APlayerCharacter::OnDeath()
 
 void APlayerCharacter::UpdateStaminaHUD()
 {
-	if (StaminaAttributeSet)
+}
+
+void APlayerCharacter::OnCrouchStarted()
+{
+	if (CrouchInputMode == ECrouchInputMode::Toggle)
 	{
-		OnStaminaUpdated.Broadcast(StaminaAttributeSet->GetStamina(), StaminaAttributeSet->GetMaxStamina());
+		if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Crouching))
+		{
+			ServerUnCrouch();
+		}
+		else
+		{
+			ServerCrouch();
+		}
 	}
+	else
+	{
+		ServerCrouch();
+	}
+}
+
+void APlayerCharacter::OnCrouchEnded()
+{
+	if (CrouchInputMode != ECrouchInputMode::Toggle)
+	{
+		ServerUnCrouch();
+	}
+}
+
+void APlayerCharacter::OnSprintStarted()
+{
+	if (SprintInputMode == ESprintInputMode::Toggle)
+	{
+		if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Sprinting))
+		{
+			ServerUnSprint();
+		}
+		else
+		{
+			ServerSprint();
+		}
+	}
+	else
+	{
+		ServerSprint();
+	}
+}
+
+void APlayerCharacter::OnSprintEnded()
+{
+	if (SprintInputMode != ESprintInputMode::Toggle)
+	{
+		ServerUnSprint();
+	}
+}
+
+void APlayerCharacter::ServerCrouch_Implementation()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[ServerCrouch] RPC received | ASC=%d"), AbilitySystemComponent ? 1 : 0);
+
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	if (AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Sprinting))
+	{
+		const FGameplayAbilitySpecHandle SprintHandle = AbilitySystemComponent->GetSprintAbilityHandle();
+		UE_LOG(LogTemp, Warning, TEXT("[ServerCrouch] Cancelling Sprint | Handle=%d"), SprintHandle.IsValid() ? 1 : 0);
+		if (SprintHandle.IsValid())
+		{
+			AbilitySystemComponent->CancelAbilityHandle(SprintHandle);
+		}
+	}
+
+	const FGameplayAbilitySpecHandle CrouchHandle = AbilitySystemComponent->GetCrouchAbilityHandle();
+	UE_LOG(LogTemp, Warning, TEXT("[ServerCrouch] Activating Crouch | Handle=%d"), CrouchHandle.IsValid() ? 1 : 0);
+	if (CrouchHandle.IsValid())
+	{
+		const bool bSuccess = AbilitySystemComponent->TryActivateAbility(CrouchHandle);
+		UE_LOG(LogTemp, Warning, TEXT("[ServerCrouch] TryActivateAbility = %d"), bSuccess);
+	}
+}
+
+void APlayerCharacter::ServerUnCrouch_Implementation()
+{
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	const FGameplayAbilitySpecHandle CrouchHandle = AbilitySystemComponent->GetCrouchAbilityHandle();
+	if (CrouchHandle.IsValid())
+	{
+		AbilitySystemComponent->CancelAbilityHandle(CrouchHandle);
+	}
+}
+
+void APlayerCharacter::ServerSprint_Implementation()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[ServerSprint] RPC received | ASC=%d"), AbilitySystemComponent ? 1 : 0);
+
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	const FGameplayAbilitySpecHandle SprintHandle = AbilitySystemComponent->GetSprintAbilityHandle();
+	UE_LOG(LogTemp, Warning, TEXT("[ServerSprint] Activating Sprint | Handle=%d"), SprintHandle.IsValid() ? 1 : 0);
+	if (SprintHandle.IsValid())
+	{
+		const bool bSuccess = AbilitySystemComponent->TryActivateAbility(SprintHandle);
+		UE_LOG(LogTemp, Warning, TEXT("[ServerSprint] TryActivateAbility = %d"), bSuccess);
+	}
+}
+
+void APlayerCharacter::ServerUnSprint_Implementation()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[ServerUnSprint] RPC received"));
+
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	const FGameplayAbilitySpecHandle SprintHandle = AbilitySystemComponent->GetSprintAbilityHandle();
+	if (SprintHandle.IsValid())
+	{
+		AbilitySystemComponent->CancelAbilityHandle(SprintHandle);
+	}
+}
+
+void APlayerCharacter::ServerJump_Implementation()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[ServerJump] RPC received | ASC=%d"), AbilitySystemComponent ? 1 : 0);
+
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	if (AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Sprinting))
+	{
+		const FGameplayAbilitySpecHandle SprintHandle = AbilitySystemComponent->GetSprintAbilityHandle();
+		if (SprintHandle.IsValid())
+		{
+			AbilitySystemComponent->CancelAbilityHandle(SprintHandle);
+		}
+	}
+
+	if (AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Crouching))
+	{
+		const FGameplayAbilitySpecHandle CrouchHandle = AbilitySystemComponent->GetCrouchAbilityHandle();
+		if (CrouchHandle.IsValid())
+		{
+			AbilitySystemComponent->CancelAbilityHandle(CrouchHandle);
+		}
+	}
+
+	const FGameplayAbilitySpecHandle JumpHandle = AbilitySystemComponent->GetJumpAbilityHandle();
+	UE_LOG(LogTemp, Warning, TEXT("[ServerJump] Activating Jump | Handle=%d"), JumpHandle.IsValid() ? 1 : 0);
+	if (JumpHandle.IsValid())
+	{
+		const bool bSuccess = AbilitySystemComponent->TryActivateAbility(JumpHandle);
+		UE_LOG(LogTemp, Warning, TEXT("[ServerJump] TryActivateAbility = %d"), bSuccess);
+	}
+}
+
+void APlayerCharacter::ApplyMovementSpeed()
+{
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	if (!CMC || !MovementAttributeSet)
+	{
+		return;
+	}
+
+	const float BaseSpeed = MovementAttributeSet->GetBaseMoveSpeed();
+
+	if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Sprinting))
+	{
+		CMC->MaxWalkSpeed = BaseSpeed * MovementAttributeSet->GetSprintSpeedMultiplier();
+	}
+	else if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Crouching))
+	{
+		CMC->MaxWalkSpeedCrouched = BaseSpeed * MovementAttributeSet->GetCrouchSpeedMultiplier();
+		CMC->MaxWalkSpeed = CMC->MaxWalkSpeedCrouched;
+	}
+	else
+	{
+		CMC->MaxWalkSpeed = BaseSpeed;
+	}
+}
+
+void APlayerCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->RemoveLooseGameplayTag(BaseGameplayTags::State_Airborne);
+	}
+}
+
+void APlayerCharacter::MulticastPerformCrouch_Implementation()
+{
+	if (HasAuthority())
+	{
+		Crouch();
+	}
+	else
+	{
+		Crouch(true);
+	}
+}
+
+void APlayerCharacter::MulticastPerformUnCrouch_Implementation()
+{
+	if (HasAuthority())
+	{
+		UnCrouch();
+	}
+	else
+	{
+		UnCrouch(true);
+	}
+}
+
+void APlayerCharacter::MulticastPerformJump_Implementation()
+{
+	if (HasAuthority())
+	{
+		Jump();
+	}
+	else
+	{
+		Jump();
+	}
+}
+
+void APlayerCharacter::MulticastStartSprint_Implementation()
+{
+	bIsSprinting = true;
+}
+
+void APlayerCharacter::MulticastStopSprint_Implementation()
+{
+	bIsSprinting = false;
+}
+
+void APlayerCharacter::MulticastSetReloading_Implementation(bool bReloading)
+{
+	bIsReloading = bReloading;
 }

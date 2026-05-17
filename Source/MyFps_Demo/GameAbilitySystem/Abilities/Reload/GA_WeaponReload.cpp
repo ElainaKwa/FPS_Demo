@@ -1,19 +1,20 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "GA_WeaponReload.h"
-#include "BaseAbilitySystemComponent.h"
-#include "BaseWeaponAttributeSet.h"
+#include "BaseGameplayAbility.h"
 #include "BaseGameplayTags.h"
+#include "BaseWeaponAttributeSet.h"
 #include "BaseWeapon.h"
-#include "BaseWeaponHolder.h"
+#include "PlayerCharacter.h"
+#include "BaseAbilitySystemComponent.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 
 UGA_WeaponReload::UGA_WeaponReload()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
 	SetAssetTags(FGameplayTagContainer(BaseGameplayTags::Ability_Reload));
-	ActivationOwnedTags.AddTag(BaseGameplayTags::State_Reloading);
 
 	FAbilityTriggerData TriggerData;
 	TriggerData.TriggerTag = BaseGameplayTags::Event_OutOfAmmo;
@@ -21,28 +22,75 @@ UGA_WeaponReload::UGA_WeaponReload()
 	AbilityTriggers.Add(TriggerData);
 }
 
+bool UGA_WeaponReload::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, OUT FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+
+	if (const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
+	{
+		if (ASC->HasMatchingGameplayTag(BaseGameplayTags::State_Reloading))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 void UGA_WeaponReload::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
+	if (!K2_HasAuthority())
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Reload] ActivateAbility 被调用 | Authority=%d | PredictionKey=%d"),
+		K2_HasAuthority() ? 1 : 0, ActivationInfo.GetActivationPredictionKey().Current);
+
 	ABaseWeapon* Weapon = GetWeapon();
 	if (!Weapon)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Reload] 失败: 武器为 null"));
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
 
 	if (Weapon->CurrentBullets >= Weapon->GetEffectiveMagazineSize())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Reload] 失败: 弹药已满 (%d / %d)"), Weapon->CurrentBullets, Weapon->GetEffectiveMagazineSize());
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
 
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Reload] 失败: CommitAbility 返回 false"));
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
 
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		ASC->AddLooseGameplayTag(BaseGameplayTags::State_Reloading);
+
+		if (UBaseAbilitySystemComponent* MyASC = Cast<UBaseAbilitySystemComponent>(ASC))
+		{
+			MyASC->CancelSprintAbility();
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Reload] 激活成功，开始换弹流程"));
+
 	Weapon->bIsReloading = true;
+
+	if (APlayerCharacter* Player = Cast<APlayerCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Player->MulticastSetReloading(true);
+	}
 
 	if (Weapon->WeaponOwner)
 	{
@@ -81,13 +129,26 @@ void UGA_WeaponReload::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 
 void UGA_WeaponReload::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
-	if (bWasCancelled)
+	if (K2_HasAuthority())
 	{
-		if (ABaseWeapon* Weapon = GetWeapon())
+		if (APlayerCharacter* Player = Cast<APlayerCharacter>(GetAvatarActorFromActorInfo()))
 		{
-			Weapon->bIsReloading = false;
+			Player->MulticastSetReloading(false);
+		}
+	}
+
+	if (ABaseWeapon* Weapon = GetWeapon())
+	{
+		Weapon->bIsReloading = false;
+		if (bWasCancelled)
+		{
 			Weapon->CancelReloadVisuals();
 		}
+	}
+
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		ASC->RemoveLooseGameplayTag(BaseGameplayTags::State_Reloading);
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
@@ -118,6 +179,11 @@ void UGA_WeaponReload::OnReloadComplete()
 		return;
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("[Reload] OnReloadComplete | Authority=%d | ReloadAmmoEffectClass=%s | CurrentBullets=%d"),
+		K2_HasAuthority() ? 1 : 0,
+		ReloadAmmoEffectClass ? *ReloadAmmoEffectClass->GetName() : TEXT("null"),
+		Weapon->CurrentBullets);
+
 	if (ReloadAmmoEffectClass)
 	{
 		FGameplayEffectSpecHandle RefillSpec = MakeOutgoingGameplayEffectSpec(ReloadAmmoEffectClass, GetAbilityLevel());
@@ -128,11 +194,15 @@ void UGA_WeaponReload::OnReloadComplete()
 	{
 		if (const UBaseWeaponAttributeSet* AttrSet = Cast<UBaseWeaponAttributeSet>(ASC->GetAttributeSet(UBaseWeaponAttributeSet::StaticClass())))
 		{
-			Weapon->CurrentBullets = FMath::FloorToInt32(AttrSet->GetCurrentAmmo());
+			const int32 NewBullets = ReloadAmmoEffectClass
+				? FMath::FloorToInt32(AttrSet->GetCurrentAmmo())
+				: Weapon->GetEffectiveMagazineSize();
+
+			ASC->SetNumericAttributeBase(UBaseWeaponAttributeSet::GetCurrentAmmoAttribute(), static_cast<float>(NewBullets));
+
+			Weapon->CurrentBullets = NewBullets;
 		}
 	}
-
-	Weapon->bIsReloading = false;
 
 	if (Weapon->WeaponOwner)
 	{

@@ -11,10 +11,12 @@
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "AbilitySystemComponent.h"
+#include "Net/UnrealNetwork.h"
 
 ABaseCharacter::ABaseCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	bReplicates = true;
 
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 96.0f);
 
@@ -28,6 +30,13 @@ ABaseCharacter::ABaseCharacter()
 	HealthAttributeSet = CreateDefaultSubobject<UBaseHealthAttributeSet>(TEXT("HealthAttributeSet"));
 
 	WeaponAttributeSet = CreateDefaultSubobject<UBaseWeaponAttributeSet>(TEXT("WeaponAttributeSet"));
+}
+
+void ABaseCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ABaseCharacter, CurrentWeapon);
 }
 
 void ABaseCharacter::BeginPlay()
@@ -54,7 +63,11 @@ void ABaseCharacter::InitAbilitySystem()
 	if (AbilitySystemComponent)
 	{
 		AbilitySystemComponent->InitAbilityActorInfo(this, this);
-		AbilitySystemComponent->GrantDefaultAbilities();
+
+		if (HasAuthority())
+		{
+			AbilitySystemComponent->GrantDefaultAbilities();
+		}
 	}
 }
 
@@ -175,6 +188,17 @@ void ABaseCharacter::OnDeath()
 		AbilitySystemComponent->CancelAllAbilities();
 	}
 
+	if (CurrentWeapon && HasAuthority())
+	{
+		CurrentWeapon->DropToGround();
+		CurrentWeapon = nullptr;
+	}
+
+	MulticastDeathVisuals();
+}
+
+void ABaseCharacter::MulticastDeathVisuals_Implementation()
+{
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	if (GetMesh()->GetSkeletalMeshAsset())
@@ -182,17 +206,21 @@ void ABaseCharacter::OnDeath()
 		GetMesh()->SetSimulatePhysics(true);
 		GetMesh()->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
 	}
+}
 
-	if (CurrentWeapon)
+void ABaseCharacter::OnRep_CurrentWeapon()
+{
+	if (CurrentWeapon && AbilitySystemComponent)
 	{
-		CurrentWeapon->DropToGround();
-		CurrentWeapon = nullptr;
+		AbilitySystemComponent->SetCurrentWeapon(CurrentWeapon);
+		SyncAttributeSetFromWeapon();
+		UpdateWeaponHUD(CurrentWeapon->CurrentBullets, CurrentWeapon->GetEffectiveMagazineSize());
 	}
 }
 
 void ABaseCharacter::AddWeapon(TSubclassOf<ABaseWeapon> WeaponClass)
 {
-	if (!WeaponClass)
+	if (!HasAuthority() || !WeaponClass)
 	{
 		return;
 	}
@@ -235,7 +263,7 @@ void ABaseCharacter::AddWeapon(TSubclassOf<ABaseWeapon> WeaponClass)
 
 void ABaseCharacter::SwitchToWeapon(ABaseWeapon* NewWeapon)
 {
-	if (!NewWeapon || NewWeapon == CurrentWeapon)
+	if (!HasAuthority() || !NewWeapon || NewWeapon == CurrentWeapon)
 	{
 		return;
 	}

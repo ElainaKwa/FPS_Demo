@@ -11,6 +11,11 @@ void ABasePlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
 	// Read widget class path directly from DefaultGame.ini (bypasses GConfig layering)
 	if (BulletCounterWidgetClassPath.IsEmpty())
 	{

@@ -42,7 +42,7 @@ GameplayAbilities, GameplayTasks, GameplayTags, UnLua, Lua
 ```
 MyFps_Demo/
 ├── BaseCharacter.h/.cpp           # 角色基类：GAS + 血量 + 武器 + 死亡
-├── PlayerCharacter.h/.cpp         # 玩家角色：FP + 输入 + 体力
+├── PlayerCharacter.h/.cpp         # 玩家角色：FP + 输入 + 体力 + 移动 + 输入模式设置
 ├── BaseEnemy.h/.cpp               # 敌人角色：AI + 世界空间血条
 ├── BaseGameMode.h/.cpp
 ├── BasePlayerController.h/.cpp
@@ -71,12 +71,18 @@ MyFps_Demo/
 └── GameAbilitySystem/
     ├── BaseAbilitySystemComponent.h/.cpp  # 自定义 ASC
     ├── BaseWeaponAttributeSet.h/.cpp      # 弹药属性集
+    ├── BaseMovementAttributeSet.h/.cpp    # 移动速度属性集
     ├── BaseGameplayTags.h/.cpp            # 原生 GameplayTag 定义
     └── Abilities/
         ├── Fire/
         │   └── GA_WeaponFire.h/.cpp     # 开火能力
-        └── Reload/
-            └── GA_WeaponReload.h/.cpp   # 换弹能力
+        ├── Reload/
+        │   └── GA_WeaponReload.h/.cpp   # 换弹能力
+        └── Movement/
+            ├── GA_Crouch.h/.cpp         # 下蹲能力
+            ├── GA_Sprint.h/.cpp         # 疾跑能力
+            ├── GA_Jump.h/.cpp           # 跳跃能力
+            └── GA_StaminaRegen.h/.cpp   # 体力被动回复能力
 ```
 
 #### 2.1.1 GAS 核心组件
@@ -88,10 +94,11 @@ MyFps_Demo/
 **AttributeSet**
 
 | AttributeSet | 属性 | 所属类 |
-|---|---|---|
+|---|---|---|---|
 | `UBaseHealthAttributeSet` | Health, MaxHealth, IncomingDamage, IncomingHeal | ABaseCharacter |
 | `UBaseStaminaAttributeSet` | Stamina, MaxStamina, IncomingStaminaCost | APlayerCharacter |
 | `UBaseWeaponAttributeSet` | CurrentAmmo, MaxAmmo | ABaseCharacter |
+| `UBaseMovementAttributeSet` | BaseMoveSpeed, SprintSpeedMultiplier, CrouchSpeedMultiplier | APlayerCharacter |
 
 通过 GameplayEffect 进行修改：
 - `CurrentAmmo`（float，网络复制，钳制范围 [0, MaxAmmo]）
@@ -107,7 +114,16 @@ MyFps_Demo/
 |-----|------|------|
 | `Ability.Fire` | 能力标签 | 标记开火能力 |
 | `Ability.Reload` | 能力标签 | 标记换弹能力 |
+| `Ability.Crouch` | 能力标签 | 标记下蹲能力 |
+| `Ability.Sprint` | 能力标签 | 标记疾跑能力 |
+| `Ability.Jump` | 能力标签 | 标记跳跃能力 |
+| `Ability.StaminaRegen` | 能力标签 | 标记体力被动回复能力 |
 | `State.Reloading` | 状态标签 | 激活中时阻塞开火，同时阻塞自身重复激活 |
+| `State.Crouching` | 状态标签 | 下蹲中，阻塞疾跑和自身重复激活 |
+| `State.Sprinting` | 状态标签 | 疾跑中，阻塞下蹲、换弹和自身重复激活 |
+| `State.Airborne` | 状态标签 | 空中，阻塞下蹲和疾跑 |
+| `Event.StaminaConsumed` | 事件标签 | 广播体力被消耗 |
+| `Ability.StaminaRegen.CD` | 能力标签 | 体力回复处于 CD 中 |
 | `Event.OutOfAmmo` | 事件标签 | 弹药耗尽时广播，触发自动换弹 |
 | `Data.Damage` | 数据标签 | SetByCaller Magnitude 标签，传递伤害数值 |
 
@@ -467,6 +483,22 @@ APlayerCharacter::OnSwitchWeapon()
 │  ├─ AmmoCostEffectClass      │  │  └─ 计时异步任务             │
 │  └─ 全自动/半自动循环        │  │                              │
 └─────────────────────────────┘  └─────────────────────────────┘
+
+┌─────────────────────────────┐  ┌─────────────────────────────┐
+│      UGA_Crouch              │  │      UGA_Sprint              │
+│  extends UBaseGameplayAbility│  │  extends UBaseGameplayAbility│
+│  ├─ StaminaCostEffectClass   │  │  ├─ StaminaDrainEffectClass  │
+│  ├─ Crouch/UnCrouch          │  │  ├─ State.Sprinting 标签     │
+│  └─ State.Crouching 标签     │  │  └─ 周期性体力消耗 GE        │
+└─────────────────────────────┘  └─────────────────────────────┘
+
+┌─────────────────────────────┐
+│      UGA_Jump                │
+│  extends UBaseGameplayAbility│
+│  ├─ StaminaCostEffectClass   │
+│  ├─ Character->Jump()        │
+│  └─ State.Airborne 标签      │
+└─────────────────────────────┘
 ```
 
 ---
@@ -518,7 +550,171 @@ APlayerCharacter::OnSwitchWeapon()
 
 ---
 
-## 8. 注意事项
+## 8. 网络架构
+
+> Listen Server 模式（主持端兼服务端 + 远程客户端）。GA 设为 `ServerOnly`，客户端输入通过 `Server` RPC 转发。
+
+### 8.1 核心通信模式
+
+```
+客户端输入
+  └─ Server RPC (ServerStartFiring / ServerReload / ...)
+      └─ 服务端 ASC->TryActivateAbility()
+          └─ GA::ActivateAbility (K2_HasAuthority 守卫 → 仅在服务端执行)
+              ├─ [游戏逻辑] LineTrace + GE_Damage + GE_AmmoCost + SetNumericAttributeBase
+              │       └─ GAS 属性复制 (Mixed 模式) → 客户端 OnRep → HUD 更新
+              │
+              └─ [视觉效果] PlayFiringMontage / AddWeaponRecoil
+                      └─ NetMulticast RPC → 所有客户端播放动画 / 后坐力
+
+武器视觉 (弹匣掉落/插入、武器掉落)：
+  └─ ABaseWeapon 内 Multicast RPC → 所有客户端同步 SetVisibility / 物理 / 碰撞
+```
+
+### 8.2 RPC 分类
+
+| 类型 | RPC | 方向 | 内容 |
+|------|-----|------|------|
+| `Server` | `ServerStartFiring` | 客户端 → 服务端 | 请求激活开火 |
+| `Server` | `ServerStopFiring` | 客户端 → 服务端 | 请求释放开火 |
+| `Server` | `ServerReload` | 客户端 → 服务端 | 请求激活换弹 |
+| `Server` | `ServerSwitchWeapon` | 客户端 → 服务端 | 请求切换武器 |
+| `NetMulticast` | `MulticastPlayFiringMontage` | 服务端 → 所有客户端 | 开火动画 |
+| `NetMulticast` | `MulticastPlayReloadMontage` | 服务端 → 所有客户端 | 换弹动画 |
+| `NetMulticast` | `MulticastAddWeaponRecoil` | 服务端 → 所有客户端 | 镜头后坐力 |
+| `NetMulticast` | `MulticastDeathVisuals` | 服务端 → 所有客户端 | 死亡 Ragdoll + 隐藏血条 |
+| `NetMulticast` | `MulticastDropMagazineVisuals` | 服务端 → 所有客户端 | 弹匣掉落左手显现 |
+| `NetMulticast` | `MulticastInsertMagazineVisuals` | 服务端 → 所有客户端 | 弹匣插入左手隐藏 |
+| `NetMulticast` | `MulticastCancelReloadVisuals` | 服务端 → 所有客户端 | 清理左手弹匣 |
+| `NetMulticast` | `MulticastDropToGroundVisuals` | 服务端 → 所有客户端 | 武器掉落分离 + 物理 |
+
+### 8.3 GA 能力配置
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| `InstancingPolicy` | `InstancedPerActor` | 每角色一个实例 |
+| `NetExecutionPolicy` | `ServerOnly` | C++ 设值，但 BP 子类可能覆盖 → 加代码级 `K2_HasAuthority()` 守卫兜底 |
+| `State.Reloading` 管理 | `AddLooseGameplayTag` / `RemoveLooseGameplayTag` | **不用** `ActivationOwnedTags`（会被 BP 覆盖为空） |
+| 阻塞自身重复激活 | `CanActivateAbility` 中检查 `State.Reloading` | **不用** `ActivationBlockedTags`（同上原因） |
+
+### 8.4 属性复制
+
+```
+服务端 ASC
+  ├─ GE 应用 → CurrentAmmo/Health 变化
+  └─ SetNumericAttributeBase (兜底，确保标记 Dirty)
+        └─ Mixed 模式复制 → 客户端 OnRep → UpdateWeaponHUD / UpdateHealthHUD
+```
+
+同时 `ABaseWeapon::CurrentBullets` 用 `ReplicatedUsing = OnRep_CurrentBullets` 作为第二条兜底复制路径。`OnRep` 中若 `WeaponOwner` 为空（客户端 Owner 同步延迟），从 `GetOwner()` 重新获取。
+
+### 8.5 权威守卫汇总
+
+| 方法 | 守卫 | 原因 |
+|------|------|------|
+| `GA_WeaponFire::ActivateAbility` | `K2_HasAuthority()` 开头立即返回 | 防止客户端预测执行 |
+| `GA_WeaponReload::ActivateAbility` | `K2_HasAuthority()` 开头立即返回 | 同上 |
+| `GA_WeaponFire::PerformFire` 伤害/弹药 | `K2_HasAuthority()` | 只在服务端做 LineTrace + GE |
+| `ABaseCharacter::AddWeapon` | `HasAuthority()` | 武器只在服务端生成 |
+| `ABaseCharacter::SwitchToWeapon` | `HasAuthority()` | 同上 |
+| `ABaseCharacter::OnDeath` 武器掉落 | `HasAuthority()` | 物理模拟只在服务端 |
+| `ABaseEnemy::Tick` AI 逻辑 | `HasAuthority()` | AI 只在服务端运行 |
+| `ABaseCharacter::InitAbilitySystem → GrantDefaultAbilities` | `HasAuthority()` | 客户端不调用 GiveAbility |
+| `ABasePlayerController::BeginPlay` HUD | `IsLocalPlayerController()` | 只为本地玩家创建 Widget |
+| `ABaseCharacter::OnDeath → SetLifeSpan` | `HasAuthority()` | 只在服务端控制生命周期 |
+
+---
+
+## 9. 踩坑记录：网络复制
+
+### 9.1 BP UPROPERTY 覆盖 C++ 默认值
+
+**问题**：`ActivationBlockedTags`、`ActivationOwnedTags`、`NetExecutionPolicy` 在 C++ 构造函数中设置，但 Blueprint 子类的 CDO 会**覆盖**这些容器和枚举值为 BP 默认值（空容器 / `LocalPredicted`）。
+
+**解决**：状态标签改用 `AddLooseGameplayTag`/`RemoveLooseGameplayTag` 手动管理；`CanActivateAbility` 中写 C++ 检查替代 `ActivationBlockedTags`；`ActivateAbility` 开头加 `K2_HasAuthority()` 代码级守卫。
+
+### 9.2 `ServerOnly` GA 在客户端也执行
+
+**问题**：即使设了 `NetExecutionPolicy = ServerOnly`，服务端激活 GA 时客户端仍收到 `ActivateAbility` 调用（PredictionKey 非零），导致客户端因武器为 null 而失败。
+
+**解决**：`ActivateAbility` 最开头加 `if (!K2_HasAuthority()) { EndAbility(); return; }`。
+
+### 9.3 `GiveAbility` 在客户端报错
+
+**问题**：`GrantDefaultAbilities()` 调用 `GiveAbility`，对于 `ServerOnly` 能力在客户端执行时报错。
+
+**解决**：`InitAbilitySystem` 中 `GrantDefaultAbilities()` 加 `HasAuthority()` 守卫。
+
+### 9.4 `TryActivateAbility` 客户端不自动转发
+
+**问题**：客户端直接调用 `TryActivateAbility` 不会发送 RPC 到服务端。GAS 的 `LocalPredicted` 能自动转发，但产生了预测执行问题（#9.2）。
+
+**解决**：改用自定义 `Server` RPC 手动转发输入 → 服务端调用 `TryActivateAbility`。这是当前架构的核心。
+
+### 9.5 动画/后坐力只在服务端执行
+
+**问题**：GA 在服务端执行，`PlayFiringMontage` 和 `AddWeaponRecoil` 只对服务端可见。
+
+**解决**：`APlayerCharacter` 覆盖这三个方法，内部转发到 `NetMulticast` RPC。
+
+### 9.6 Enhanced Input `Triggered` 重复触发
+
+**问题**：`ReloadAction` 绑定 `ETriggerEvent::Triggered`，在 Listen Server 下一次按键触发两次 `OnReload`，导致第二次请求被 `State.Reloading` 阻塞。
+
+**解决**：改为 `ETriggerEvent::Started`。
+
+### 9.7 客户端武器 Owner 同步延迟
+
+**问题**：武器复制到客户端时 `BeginPlay` 中 `GetOwner()` 可能还是 nullptr（Owner Actor 尚未完成同步），导致 `WeaponOwner` 永久为空。
+
+**解决**：`OnRep_CurrentBullets` 中判断 `WeaponOwner` 为空时从 `GetOwner()` 重新获取。
+
+### 9.8 `SetNumericAttributeBase` 复制不可靠
+
+**问题**：在 `Mixed` 模式下直接调用 `SetNumericAttributeBase` 不一定触发属性网络复制。
+
+**解决**：优先用 GE（`ApplyGameplayEffectSpecToOwner`）；同时保留 `SetNumericAttributeBase` 作为兜底；`CurrentBullets` 通过 `ReplicatedUsing = OnRep_CurrentBullets` 提供第二条独立复制通道。
+
+### 9.9 Owner 销毁时武器连带销毁
+
+**问题**：`ABaseWeapon::BeginPlay` 绑定 `Owner->OnDestroyed`，`DropToGround` 后敌人 5 秒销毁会连带销毁地上武器。
+
+**解决**：`DropToGround` 中调用 `OwnerActor->OnDestroyed.RemoveDynamic(...)` 和 `SetOwner(nullptr)` 解除关联。
+
+### 9.10 弹匣/武器视觉效果不复制
+
+**问题**：换弹时 `DropMagazine`/`InsertMagazine` 中的 `SetVisibility`、`AttachToComponent` 等操作只在服务端执行，客户端看不到弹匣掉落和替换。同样的，`DropToGround` 中的武器物理掉落也只在服务端。
+
+**解决**：将视觉效果从原始函数中抽离为 `NetMulticast` RPC：
+- `MulticastDropMagazineVisuals` / `MulticastInsertMagazineVisuals` — 弹匣视觉效果
+- `MulticastDropToGroundVisuals` — 武器掉落视觉效果
+- 游戏逻辑（`SpawnActor`、`SetLifeSpan`、解除绑定）保留 `HasAuthority` 守卫
+
+### 9.11 掉落弹匣 StaticMesh 和物理速度不复制
+
+**问题**：`ABaseDroppedMagazine::Initialize` 中调用 `SetStaticMesh` 和 `SetPhysicsLinearVelocity`，但这些只在服务端执行。客户端复制 Actor 后看不到弹匣网格。
+
+**解决**：
+- `StaticMesh` → `ReplicatedUsing = OnRep_DropData`，客户端在 `OnRep_DropData` 中设置
+- `InitialVelocity` → `Replicated`，随 `DropMesh` 一同复制
+- `SetReplicateMovement(true)` → 弹匣位置/旋转自动同步
+- 物理速度只在服务端 `OnRep_DropData` 中设置
+
+### 9.12 掉落弹匣客户端与角色碰撞
+
+**问题**：弹匣构造时设 `PhysicsActor` 碰撞预设（包含对 Pawn 的碰撞），且客户端也在模拟物理。服务端在 `Initialize` 中设了 `ECC_Pawn, ECR_Ignore`，但 `Initialize` 不在客户端执行，导致客户端弹匣碰撞角色 → 角色被推动抽搐。
+
+**解决**：`SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore)` 从 `Initialize` 移到**构造函数**，确保服务端和客户端都不与角色碰撞。`PhysicsActor` 预设对静态几何的碰撞保留，弹匣仍能与地面碰撞掉落。
+
+### 9.13 掉落武器客户端碰撞与物理
+
+**问题**：同 9.12，`DropToGround` 中 `SetCollisionProfileName("PhysicsActor")` 和 `SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore)` 只在服务端执行。
+
+**解决**：视觉效果抽离为 `MulticastDropToGroundVisuals` RPC（见 9.10），碰撞和物理设置在此 RPC 中广播到所有客户端。
+
+---
+
+## 10. 注意事项
 - **能力类不存在于编辑器**：`GA_WeaponFire` 和 `GA_WeaponReload` 需要在编辑器中创建 Blueprint 子类才能被 ASC 引用（`TSubclassOf<UGameplayAbility>` 属性需要通过 Blueprint 资产来配置）。
 - **GameplayEffect 是 Blueprint 资产**：伤害、弹药消耗、弹药补充的 GE 需要在编辑器中创建，因为 UE 的 GameplayEffect 通常定义在 Blueprint 中。
 - **网络复制**：AttributeSet 已标记 `Replicated`，ASC 设置为 `Mixed` 复制模式。属性修改通过 GE 自动网络同步。
@@ -526,25 +722,26 @@ APlayerCharacter::OnSwitchWeapon()
 
 ---
 
-## 9. 开发路线图
+## 11. 开发路线图
 
 > 目标：将项目逐步迭代为**技能射击型 FPS**，具备投掷物、位移技能，以**死斗模式**作为功能展示载体。
 
-### 9.1 依赖关系总览
+### 11.1 依赖关系总览
 
 ```
 Phase 1 (生命/伤害)        ← 基础，一切前提
+  ├── Phase 1.5 (基础移动)   ← ✅ Crouch/Sprint/Jump GAS 化
   ├── Phase 2 (ADS)        ← 独立，建议紧接 Phase 1
   ├── Phase 3 (近战)       ← 依赖 Phase 1 的伤害
   ├── Phase 4 (投掷物)     ← 依赖 Phase 1 的伤害
-  └── Phase 5 (位移)       ← 依赖 Phase 1 的 AttributeSet 模式
+  └── Phase 5 (位移)       ← 依赖 Phase 1.5 的移动框架
          └── Phase 6 (死斗) ← 依赖所有 Phase
                 └── Phase 7 (HUD 打磨)
 ```
 
 Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 
-### 9.2 Phase 1：角色生命 & 伤害系统
+### 11.2 Phase 1：角色生命 & 伤害系统
 
 > 没有生命值，角色死不了；角色死不了，后面所有技能和死斗模式都无从验证。
 
@@ -575,7 +772,7 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - 受击方向指示器：屏幕红色边缘闪烁
 - 伤害数字浮动文本（可选，后期做）
 
-### 9.3 Phase 2：ADS 瞄准
+### 11.3 Phase 2：ADS 瞄准
 
 > 在现有武器系统上最自然的扩展，难度适中，能验证"添加新能力"的完整流程。
 
@@ -603,7 +800,7 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - `ABaseWeapon` 新增：`ADSFOV`, `ADSTransitionTime`, `ADSSocketName`, `ADSMontage`
 - `GetEffectiveADSSpread()` 汇总配件加成
 
-### 9.4 Phase 3：近战攻击
+### 11.4 Phase 3：近战攻击
 
 > 填补近距离战斗空缺，实现简单，同时验证"非武器能力"的模式。
 
@@ -627,7 +824,7 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - 第一人称近战动画（枪托砸 / 刀划）
 - 命中特效（火花/血液粒子）
 
-### 9.5 Phase 4：投掷物系统
+### 11.5 Phase 4：投掷物系统
 
 > 需要伤害系统支撑，是第一个"非直射"攻击方式，架构上需要新的基类。
 
@@ -671,7 +868,7 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - 命中玩家：施加 `State.Blinded` + 屏幕白屏效果（UMG 叠加层）
 - `GE_FlashEffect`：持续 2~3 秒后自动移除
 
-### 9.6 Phase 5：位移技能
+### 11.6 Phase 5：位移技能
 
 > 技能射击的核心特征，需要前几个阶段的 GAS 模式已经稳定，再做复杂的能力交互。
 
@@ -712,7 +909,7 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - `State.DoubleJumping` 标签
 - 可选扩展：Wall Jump（检测贴墙，沿墙面反弹）
 
-### 9.7 Phase 6：死斗模式
+### 11.7 Phase 6：死斗模式
 
 > 所有功能的展示容器，需要前面的功能都就绪后才有意义。
 
@@ -761,7 +958,7 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - 显示 MVP、个人战绩
 - 倒计时后自动开始新局或返回大厅
 
-### 9.8 Phase 7：HUD 完善 & 打磨
+### 11.8 Phase 7：HUD 完善 & 打磨
 
 **7.1 生命/护盾条**
 
@@ -784,12 +981,18 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 - 俯视图 + 玩家位置标记
 - 显示队友/最近交战位置
 
-### 9.9 新增 GameplayTags 预览
+### 11.9 新增 GameplayTags 预览
 
 | Tag | 类型 | 归属 Phase |
 |-----|------|-----------|
-| `State.Dead` | 状态 | 1 |
-| `Event.Death` | 事件 | 1 |
+| `State.Dead` | 状态 | 1 (已实现) |
+| `Event.Death` | 事件 | 1 (已实现) |
+| `Ability.Crouch` | 能力 | 1.5 (已实现) |
+| `Ability.Sprint` | 能力 | 1.5 (已实现) |
+| `Ability.Jump` | 能力 | 1.5 (已实现) |
+| `State.Crouching` | 状态 | 1.5 (已实现) |
+| `State.Sprinting` | 状态 | 1.5 (已实现) |
+| `State.Airborne` | 状态 | 1.5 (已实现) |
 | `Ability.ADS` | 能力 | 2 |
 | `State.ADS` | 状态 | 2 |
 | `Ability.Melee` | 能力 | 3 |
@@ -803,10 +1006,11 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 | `State.Sliding` | 状态 | 5 |
 | `State.SpawnProtection` | 状态 | 6 |
 
-### 9.10 新增 AttributeSet 预览
+### 11.10 新增 AttributeSet 预览
 
 | AttributeSet | 属性 | 归属 Phase |
 |---|---|---|
 | `BaseHealthAttributeSet` | Health, MaxHealth, IncomingDamage, IncomingHeal | 1 (已实现) |
-| `BaseStaminaAttributeSet` | Stamina, MaxStamina, IncomingStaminaCost | 5 (已实现) |
+| `BaseStaminaAttributeSet` | Stamina, MaxStamina, IncomingStaminaCost | 1.5 (已实现) |
 | `BaseWeaponAttributeSet` | CurrentAmmo, MaxAmmo | 已实现 |
+| `BaseMovementAttributeSet` | BaseMoveSpeed, SprintSpeedMultiplier, CrouchSpeedMultiplier | 1.5 (已实现) |

@@ -1,10 +1,13 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "BaseStaminaAttributeSet.h"
+#include "BaseAbilitySystemComponent.h"
+#include "BaseGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 #include "GameplayEffectExtension.h"
 #include "AbilitySystemComponent.h"
 #include "PlayerCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 UBaseStaminaAttributeSet::UBaseStaminaAttributeSet()
 {
@@ -39,14 +42,58 @@ void UBaseStaminaAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMo
 
 		if (Cost > 0.0f)
 		{
+			if (APlayerCharacter* Player = Cast<APlayerCharacter>(Data.Target.GetOwnerActor()))
+			{
+				UCharacterMovementComponent* CMC = Player->GetCharacterMovement();
+				if (CMC && CMC->Velocity.SizeSquared2D() < 1.0f)
+				{
+					return;
+				}
+			}
+
 			const float NewStamina = GetStamina() - Cost;
 			SetStamina(FMath::Clamp(NewStamina, 0.0f, GetMaxStamina()));
+
+			if (GetStamina() <= 0.0f)
+			{
+				if (UBaseAbilitySystemComponent* BASC = Cast<UBaseAbilitySystemComponent>(GetOwningAbilitySystemComponent()))
+				{
+					const FGameplayAbilitySpecHandle SprintHandle = BASC->GetSprintAbilityHandle();
+					if (SprintHandle.IsValid())
+					{
+						BASC->CancelAbilityHandle(SprintHandle);
+					}
+				}
+			}
+
+			if (Data.Target.GetOwnerActor())
+			{
+				LastStaminaConsumptionTime = Data.Target.GetOwnerActor()->GetWorld()->GetTimeSeconds();
+			}
+
+			if (UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent())
+			{
+				FGameplayEventData EventData;
+				ASC->HandleGameplayEvent(BaseGameplayTags::Event_StaminaConsumed, &EventData);
+			}
 		}
 	}
 
 	if (ModifiedAttribute == GetStaminaAttribute())
 	{
 		SetStamina(FMath::Clamp(GetStamina(), 0.0f, GetMaxStamina()));
+
+		if (GetStamina() <= 0.0f)
+		{
+			if (UBaseAbilitySystemComponent* BASC = Cast<UBaseAbilitySystemComponent>(GetOwningAbilitySystemComponent()))
+			{
+				const FGameplayAbilitySpecHandle SprintHandle = BASC->GetSprintAbilityHandle();
+				if (SprintHandle.IsValid())
+				{
+					BASC->CancelAbilityHandle(SprintHandle);
+				}
+			}
+		}
 	}
 
 	if (ModifiedAttribute == GetMaxStaminaAttribute())

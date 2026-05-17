@@ -13,7 +13,10 @@ enum class EAbilityInputID : uint8
 	Confirm		UMETA(Hidden),
 	Cancel		UMETA(Hidden),
 	Fire,
-	Reload
+	Reload,
+	Crouch,
+	Sprint,
+	Jump
 };
 
 class ABaseWeapon;
@@ -28,10 +31,17 @@ public:
 	ABaseWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
 
 	void GrantDefaultAbilities();
+	void GrantMovementAbilities();
+	void GrantPassiveAbilities();
 	void CancelFireAbility();
+	void CancelSprintAbility();
 
 	const FGameplayAbilitySpecHandle& GetFireAbilityHandle() const { return FireAbilityHandle; }
 	const FGameplayAbilitySpecHandle& GetReloadAbilityHandle() const { return ReloadAbilityHandle; }
+	const FGameplayAbilitySpecHandle& GetCrouchAbilityHandle() const { return CrouchAbilityHandle; }
+	const FGameplayAbilitySpecHandle& GetSprintAbilityHandle() const { return SprintAbilityHandle; }
+	const FGameplayAbilitySpecHandle& GetJumpAbilityHandle() const { return JumpAbilityHandle; }
+	const FGameplayAbilitySpecHandle& GetStaminaRegenAbilityHandle() const { return StaminaRegenAbilityHandle; }
 
 protected:
 	UPROPERTY()
@@ -43,6 +53,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Abilities")
 	TSubclassOf<class UGameplayAbility> ReloadAbilityClass;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Abilities")
+	TSubclassOf<class UGameplayAbility> CrouchAbilityClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Abilities")
+	TSubclassOf<class UGameplayAbility> SprintAbilityClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Abilities")
+	TSubclassOf<class UGameplayAbility> JumpAbilityClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Abilities")
+	TSubclassOf<class UGameplayAbility> StaminaRegenAbilityClass;
+
 	FGameplayAbilitySpecHandle FireAbilityHandle;
 	FGameplayAbilitySpecHandle ReloadAbilityHandle;
+	FGameplayAbilitySpecHandle CrouchAbilityHandle;
+	FGameplayAbilitySpecHandle SprintAbilityHandle;
+	FGameplayAbilitySpecHandle JumpAbilityHandle;
+	FGameplayAbilitySpecHandle StaminaRegenAbilityHandle;
 };

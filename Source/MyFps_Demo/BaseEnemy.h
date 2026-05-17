@@ -58,6 +58,7 @@ public:
 	virtual void AddWeaponRecoil(float RecoilAmount) override;
 	virtual void UpdateHealthHUD() override;
 	virtual void OnDeath() override;
+	virtual void MulticastDeathVisuals_Implementation() override;
 
 	UFUNCTION(BlueprintCallable, Category = "AI")
 	void StartFiring();

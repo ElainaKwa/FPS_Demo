@@ -69,6 +69,11 @@ void ABaseEnemy::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Dead))
 	{
 		return;
@@ -152,12 +157,20 @@ void ABaseEnemy::OnDeath()
 {
 	Super::OnDeath();
 
+	if (HasAuthority())
+	{
+		SetLifeSpan(5.0f);
+	}
+}
+
+void ABaseEnemy::MulticastDeathVisuals_Implementation()
+{
+	Super::MulticastDeathVisuals_Implementation();
+
 	if (HealthBarWidget)
 	{
 		HealthBarWidget->SetVisibility(false);
 	}
-
-	SetLifeSpan(5.0f);
 }
 
 void ABaseEnemy::StartFiring()

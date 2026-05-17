@@ -3,6 +3,8 @@
 #include "BaseWeaponAttributeSet.h"
 #include "Net/UnrealNetwork.h"
 #include "GameplayEffectExtension.h"
+#include "BaseCharacter.h"
+#include "AbilitySystemComponent.h"
 
 UBaseWeaponAttributeSet::UBaseWeaponAttributeSet()
 {
@@ -41,9 +43,27 @@ void UBaseWeaponAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMod
 void UBaseWeaponAttributeSet::OnRep_CurrentAmmo(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UBaseWeaponAttributeSet, CurrentAmmo, OldValue);
+
+	UE_LOG(LogTemp, Warning, TEXT("[OnRep] CurrentAmmo 复制: %.0f -> %.0f"), OldValue.GetCurrentValue(), GetCurrentAmmo());
+
+	if (UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent())
+	{
+		if (ABaseCharacter* Character = Cast<ABaseCharacter>(ASC->GetOwnerActor()))
+		{
+			Character->UpdateWeaponHUD(static_cast<int32>(GetCurrentAmmo()), static_cast<int32>(GetMaxAmmo()));
+		}
+	}
 }
 
 void UBaseWeaponAttributeSet::OnRep_MaxAmmo(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UBaseWeaponAttributeSet, MaxAmmo, OldValue);
+
+	if (UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent())
+	{
+		if (ABaseCharacter* Character = Cast<ABaseCharacter>(ASC->GetOwnerActor()))
+		{
+			Character->UpdateWeaponHUD(static_cast<int32>(GetCurrentAmmo()), static_cast<int32>(GetMaxAmmo()));
+		}
+	}
 }

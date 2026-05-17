@@ -14,11 +14,18 @@
 UGA_WeaponFire::UGA_WeaponFire()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
 	SetAssetTags(FGameplayTagContainer(BaseGameplayTags::Ability_Fire));
 }
 
 void UGA_WeaponFire::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
+	if (!K2_HasAuthority())
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
 	{
 		if (ASC->HasMatchingGameplayTag(BaseGameplayTags::State_Reloading))

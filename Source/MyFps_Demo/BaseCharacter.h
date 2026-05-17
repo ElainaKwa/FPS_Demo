@@ -43,7 +43,7 @@ protected:
 	UPROPERTY()
 	TArray<TObjectPtr<ABaseWeapon>> OwnedWeapons;
 
-	UPROPERTY()
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentWeapon)
 	TObjectPtr<ABaseWeapon> CurrentWeapon;
 
 	UPROPERTY(EditAnywhere, Category = "Weapon")
@@ -62,6 +62,7 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	virtual void InitAbilitySystem();
 
@@ -83,6 +84,12 @@ public:
 	virtual void UpdateHealthHUD();
 
 	virtual void OnDeath();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastDeathVisuals();
+
+	UFUNCTION()
+	void OnRep_CurrentWeapon();
 
 	UFUNCTION(BlueprintCallable, Category = "MyFps|Weapon")
 	void AddWeapon(TSubclassOf<ABaseWeapon> WeaponClass);
