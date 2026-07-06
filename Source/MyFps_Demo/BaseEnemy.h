@@ -47,6 +47,28 @@ class MYFPS_DEMO_API ABaseEnemy : public ABaseCharacter
 	UPROPERTY()
 	bool bIsFiring = false;
 
+	// ──────── 重生系统 ────────
+
+	UPROPERTY(EditAnywhere, Category = "Respawn")
+	float RespawnDelay = 10.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Respawn")
+	float RespawnSearchRadius = 5000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Respawn")
+	float MinRespawnDistanceToPlayer = 1500.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Respawn")
+	bool bUseCustomRespawnOrigins = false;
+
+	UPROPERTY(EditAnywhere, Category = "Respawn",
+		meta = (EditCondition = "bUseCustomRespawnOrigins"))
+	TArray<FVector> RespawnOrigins;
+
+	FTimerHandle RespawnTimerHandle;
+
+	FVector InitialLocation;
+
 public:
 	ABaseEnemy();
 
@@ -76,4 +98,8 @@ protected:
 	void UpdateTarget();
 	void MoveTowardTarget(float DeltaSeconds);
 	void FaceTarget(float DeltaSeconds);
+
+	void Respawn();
+	FVector SelectRespawnLocation() const;
+	bool IsLocationSafe(const FVector& Location) const;
 };

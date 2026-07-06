@@ -13,6 +13,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemInterface.h"
 #include "AIController.h"
+#include "NavigationSystem.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "TimerManager.h"
@@ -40,6 +41,11 @@ void ABaseEnemy::BeginPlay()
 {
 	Super::BeginPlay();
 
+	InitialLocation = GetActorLocation();
+
+	UE_LOG(LogTemp, Warning, TEXT("[%s] BeginPlay | InitialLocation=%s"),
+		*GetName(), *InitialLocation.ToString());
+
 	if (HealthBarWidget)
 	{
 		HealthBarWidget->SetVisibility(true);
@@ -50,12 +56,7 @@ void ABaseEnemy::BeginPlay()
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[%s] HealthBarWidgetClass 未配置，血条不会显示"), *GetName());
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
-					FString::Printf(TEXT("[%s] HealthBarWidgetClass 未配置，请在 BP 中设置"), *GetName()));
-			}
+			UE_LOG(LogTemp, Warning, TEXT("[%s] HealthBarWidgetClass not set"), *GetName());
 		}
 	}
 
@@ -155,11 +156,28 @@ void ABaseEnemy::UpdateHealthHUD()
 
 void ABaseEnemy::OnDeath()
 {
+	const bool bAlreadyDead = AbilitySystemComponent
+		&& AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Dead);
+
+	UE_LOG(LogTemp, Warning, TEXT("[%s] OnDeath | AlreadyDead=%d | Authority=%d"),
+		*GetName(), bAlreadyDead ? 1 : 0, HasAuthority() ? 1 : 0);
+
 	Super::OnDeath();
 
-	if (HasAuthority())
+	if (HasAuthority() && !bAlreadyDead)
 	{
-		SetLifeSpan(5.0f);
+		// Clear any existing respawn timer, then set a new one
+		GetWorld()->GetTimerManager().ClearTimer(RespawnTimerHandle);
+		GetWorld()->GetTimerManager().SetTimer(
+			RespawnTimerHandle,
+			this,
+			&ABaseEnemy::Respawn,
+			RespawnDelay,
+			false
+		);
+
+		UE_LOG(LogTemp, Warning, TEXT("[%s] Respawn timer set | Delay=%.1fs"),
+			*GetName(), RespawnDelay);
 	}
 }
 
@@ -272,4 +290,194 @@ void ABaseEnemy::FaceTarget(float DeltaSeconds)
 
 	const FRotator NewRot = FMath::RInterpTo(GetActorRotation(), TargetRot, DeltaSeconds, 10.0f);
 	SetActorRotation(NewRot);
+}
+
+// ------------------------------------------------------------------
+//  Respawn system
+// ------------------------------------------------------------------
+
+void ABaseEnemy::Respawn()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[%s] Respawn() called"), *GetName());
+
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[%s] Respawn() aborted: not authority"), *GetName());
+		return;
+	}
+
+	// 1. Pick a respawn location
+	const FVector NewLocation = SelectRespawnLocation();
+
+	// 2. Reset movement component (clear any leftover velocity / falling state)
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	if (CMC)
+	{
+		CMC->StopMovementImmediately();
+		CMC->Velocity = FVector::ZeroVector;
+		CMC->SetMovementMode(MOVE_Walking);
+	}
+
+	// 3. Teleport to new location (safe for CharacterMovementComponent)
+	TeleportTo(NewLocation, GetActorRotation(), false, true);
+
+	// 4. Stop ragdoll physics and reset mesh to standing pose
+	GetMesh()->SetSimulatePhysics(false);
+	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -96.0f));
+	GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	GetMesh()->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, false));
+	GetMesh()->InitAnim(true);
+
+	// 5. Restore capsule collision
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
+	// 6. Reset health
+	if (HealthAttributeSet)
+	{
+		HealthAttributeSet->SetHealth(HealthAttributeSet->GetMaxHealth());
+		UE_LOG(LogTemp, Warning, TEXT("[%s] Health reset to %.0f"), *GetName(), HealthAttributeSet->GetHealth());
+	}
+
+	// 7. Remove death tag
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->RemoveLooseGameplayTag(BaseGameplayTags::State_Dead);
+	}
+
+	// 8. Re-equip weapon
+	if (!CurrentWeapon)
+	{
+		SpawnDefaultWeapon();
+		UE_LOG(LogTemp, Warning, TEXT("[%s] Weapon respawned | CurrentWeapon=%s"),
+			*GetName(), CurrentWeapon ? *CurrentWeapon->GetName() : TEXT("NULL"));
+	}
+
+	// 9. Show the actor
+	SetActorHiddenInGame(false);
+	SetActorEnableCollision(true);
+
+	// 10. Restore health bar
+	if (HealthBarWidget)
+	{
+		HealthBarWidget->SetVisibility(true);
+	}
+
+	UpdateHealthHUD();
+
+	UE_LOG(LogTemp, Warning, TEXT("[%s] Respawn complete | Location=%s | Health=%.0f"),
+		*GetName(), *NewLocation.ToString(),
+		HealthAttributeSet ? HealthAttributeSet->GetHealth() : -1.0f);
+}
+
+FVector ABaseEnemy::SelectRespawnLocation() const
+{
+	UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (!NavSys)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[%s] SelectRespawnLocation: No NavSystem, returning InitialLocation"), *GetName());
+		return InitialLocation;
+	}
+
+	FVector SearchOrigin;
+	if (bUseCustomRespawnOrigins && RespawnOrigins.Num() > 0)
+	{
+		SearchOrigin = RespawnOrigins[FMath::RandRange(0, RespawnOrigins.Num() - 1)];
+	}
+	else
+	{
+		SearchOrigin = InitialLocation;
+	}
+
+	for (int32 Attempt = 0; Attempt < 10; ++Attempt)
+	{
+		FNavLocation NavLocation;
+		const bool bFound = NavSys->GetRandomReachablePointInRadius(
+			SearchOrigin,
+			RespawnSearchRadius,
+			NavLocation
+		);
+
+		if (!bFound)
+		{
+			continue;
+		}
+
+		if (IsLocationSafe(NavLocation.Location))
+		{
+			return NavLocation.Location;
+		}
+	}
+
+	// Fallback: any point on NavMesh
+	FNavLocation FallbackLoc;
+	if (NavSys->GetRandomPoint(FallbackLoc))
+	{
+		return FallbackLoc.Location;
+	}
+
+	return InitialLocation;
+}
+
+bool ABaseEnemy::IsLocationSafe(const FVector& Location) const
+{
+	// 1. Min distance from all players
+	for (auto It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PC = It->Get();
+		if (!PC) continue;
+
+		APawn* PlayerPawn = PC->GetPawn();
+		if (!PlayerPawn) continue;
+
+		const float Dist = FVector::Dist(Location, PlayerPawn->GetActorLocation());
+		if (Dist < MinRespawnDistanceToPlayer)
+		{
+			return false;
+		}
+	}
+
+	// 2. Capsule overlap test — check at capsule center (NavMesh returns floor-level point)
+	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const float Radius = GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const FVector CapsuleCenter = Location + FVector(0, 0, HalfHeight);
+
+	FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	// Check for any blocking collision with world geometry or other pawns
+	const bool bOverlap = GetWorld()->OverlapAnyTestByChannel(
+		CapsuleCenter,
+		FQuat::Identity,
+		ECC_Pawn,
+		CapsuleShape,
+		Params
+	);
+
+	if (bOverlap)
+	{
+		return false;
+	}
+
+	// 3. Ceiling clearance check — ensure the character can stand upright
+	FHitResult CeilingHit;
+	const FVector CeilingStart = CapsuleCenter;
+	const FVector CeilingEnd = CapsuleCenter + FVector(0, 0, HalfHeight + 50.0f);
+
+	GetWorld()->LineTraceSingleByChannel(
+		CeilingHit,
+		CeilingStart,
+		CeilingEnd,
+		ECC_Visibility,
+		Params
+	);
+
+	if (CeilingHit.bBlockingHit)
+	{
+		return false;  // Low ceiling — not enough room to stand
+	}
+
+	return true;
 }

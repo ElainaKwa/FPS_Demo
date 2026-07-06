@@ -8,6 +8,7 @@ class UBaseBulletCounterWidget;
 class UBaseCrosshairWidget;
 class UBaseHealthBarWidget;
 class UBaseStaminaBarWidget;
+class UBaseScoreWidget;
 class UCrosshairSettingsSubsystem;
 
 UCLASS()
@@ -28,6 +29,9 @@ protected:
 	FString StaminaBarWidgetClassPath;
 
 	UPROPERTY()
+	FString ScoreWidgetClassPath;
+
+	UPROPERTY()
 	TObjectPtr<UBaseBulletCounterWidget> BulletCounterWidget;
 
 	UPROPERTY()
@@ -38,6 +42,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UBaseStaminaBarWidget> StaminaBarWidget;
+
+	UPROPERTY()
+	TObjectPtr<UBaseScoreWidget> ScoreWidget;
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "Crosshair")

@@ -4,6 +4,7 @@
 #include "UI/Crosshair/CrosshairSettingsSubsystem.h"
 #include "UI/Health/BaseHealthBarWidget.h"
 #include "UI/Stamina/BaseStaminaBarWidget.h"
+#include "UI/Score/BaseScoreWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Misc/ConfigCacheIni.h"
 
@@ -85,6 +86,33 @@ void ABasePlayerController::BeginPlay()
 				StaminaBarWidget->AddToViewport();
 			}
 		}
+	}
+
+	// Score widget
+	if (ScoreWidgetClassPath.IsEmpty())
+	{
+		FConfigFile ConfigFile;
+		ConfigFile.Read(*(FPaths::ProjectConfigDir() / TEXT("DefaultGame.ini")));
+		ConfigFile.GetString(TEXT("/Script/MyFps_Demo.ABasePlayerController"),
+			TEXT("ScoreWidgetClassPath"), ScoreWidgetClassPath);
+	}
+
+	if (!ScoreWidgetClassPath.IsEmpty())
+	{
+		UClass* Class = LoadClass<UBaseScoreWidget>(nullptr, *ScoreWidgetClassPath);
+		if (Class)
+		{
+			ScoreWidget = CreateWidget<UBaseScoreWidget>(this, Class);
+			if (ScoreWidget)
+			{
+				ScoreWidget->AddToViewport();
+				UE_LOG(LogTemp, Warning, TEXT("BasePlayerController: ScoreWidget added to viewport"));
+			}
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("BasePlayerController: ScoreWidgetClassPath is not configured"));
 	}
 
 	UGameInstance* GI = GetGameInstance();

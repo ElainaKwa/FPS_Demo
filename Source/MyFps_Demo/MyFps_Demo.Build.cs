@@ -18,7 +18,8 @@ public class MyFps_Demo : ModuleRules
 			"GameplayTasks",
 			"GameplayTags",
 			"UMG",
-			"AIModule"
+			"AIModule",
+			"NavigationSystem"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {

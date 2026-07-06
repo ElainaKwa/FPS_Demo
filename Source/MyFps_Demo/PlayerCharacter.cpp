@@ -154,6 +154,12 @@ void APlayerCharacter::OnMove(const FInputActionValue& Value)
 {
 	const FVector2D MoveVector = Value.Get<FVector2D>();
 
+	// Backward movement cancels sprint
+	if (bIsSprinting && MoveVector.Y < 0.0f)
+	{
+		ServerUnSprint();
+	}
+
 	if (Controller)
 	{
 		const FRotator YawRotation(0.0f, Controller->GetControlRotation().Yaw, 0.0f);
@@ -338,25 +344,47 @@ void APlayerCharacter::AddWeaponRecoil(float RecoilAmount)
 
 void APlayerCharacter::MulticastPlayFiringMontage_Implementation(UAnimMontage* Montage)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Multicast] PlayFiring | Montage=%s | HasAnim=%d"),
+	UE_LOG(LogTemp, Warning, TEXT("[Multicast] PlayFiring | Montage=%s | FPAnim=%d | TPAnim=%d"),
 		Montage ? *Montage->GetName() : TEXT("null"),
-		FirstPersonMesh->GetAnimInstance() ? 1 : 0);
+		FirstPersonMesh->GetAnimInstance() ? 1 : 0,
+		GetMesh()->GetAnimInstance() ? 1 : 0);
 
-	if (Montage && FirstPersonMesh->GetAnimInstance())
+	if (!Montage)
+	{
+		return;
+	}
+
+	if (FirstPersonMesh->GetAnimInstance())
 	{
 		FirstPersonMesh->GetAnimInstance()->Montage_Play(Montage);
+	}
+
+	if (GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(Montage);
 	}
 }
 
 void APlayerCharacter::MulticastPlayReloadMontage_Implementation(UAnimMontage* Montage)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Multicast] PlayReload | Montage=%s | HasAnim=%d"),
+	UE_LOG(LogTemp, Warning, TEXT("[Multicast] PlayReload | Montage=%s | FPAnim=%d | TPAnim=%d"),
 		Montage ? *Montage->GetName() : TEXT("null"),
-		FirstPersonMesh->GetAnimInstance() ? 1 : 0);
+		FirstPersonMesh->GetAnimInstance() ? 1 : 0,
+		GetMesh()->GetAnimInstance() ? 1 : 0);
 
-	if (Montage && FirstPersonMesh->GetAnimInstance())
+	if (!Montage)
+	{
+		return;
+	}
+
+	if (FirstPersonMesh->GetAnimInstance())
 	{
 		FirstPersonMesh->GetAnimInstance()->Montage_Play(Montage, 1.0f, EMontagePlayReturnType::MontageLength, 0.1f);
+	}
+
+	if (GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(Montage, 1.0f, EMontagePlayReturnType::MontageLength, 0.1f);
 	}
 }
 

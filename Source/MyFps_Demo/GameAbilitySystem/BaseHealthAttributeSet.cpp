@@ -5,6 +5,7 @@
 #include "GameplayEffectExtension.h"
 #include "AbilitySystemComponent.h"
 #include "BaseCharacter.h"
+#include "BaseGameMode.h"
 #include "Engine/Engine.h"
 
 UBaseHealthAttributeSet::UBaseHealthAttributeSet()
@@ -83,7 +84,15 @@ void UBaseHealthAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMod
 	{
 		if (ABaseCharacter* Character = Cast<ABaseCharacter>(Data.Target.GetOwnerActor()))
 		{
+			// 从 GE 的 EffectContext 获取击杀者（造成伤害的 Instigator）
+			AActor* Killer = Data.EffectSpec.GetContext().GetOriginalInstigator();
 			Character->OnDeath();
+
+			// 通知 GameMode 处理击杀计分
+			if (ABaseGameMode* GM = Cast<ABaseGameMode>(Character->GetWorld()->GetAuthGameMode()))
+			{
+				GM->OnKill(Killer, Character);
+			}
 		}
 	}
 

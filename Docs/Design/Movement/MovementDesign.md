@@ -114,6 +114,17 @@ EndAbility():
   └─ ApplyMovementSpeed()               → 恢复 BaseMoveSpeed
 ```
 
+**疾跑方向限制**：
+
+```
+OnMove() 中检查 bIsSprinting:
+  ├─ 前后向 (W/S): 全速
+  ├─ 横向 (A/D): 全速
+  └─ 后退 (S 即 MoveVector.Y < 0): 调用 ServerUnSprint() 打断疾跑
+```
+
+> 这意味着疾跑中松开 W 不会打断疾跑（玩家可能短暂松手调整方向），但按 S 主动后退会立即取消疾跑。横向移动不受限制。
+
 **疾跑中开火**（`ServerStartFiring_Implementation`）：
 
 ```
@@ -174,6 +185,7 @@ Airborne 标签移除:
 | **Crouch** | Block 自身 | Block Sprint | Allow | Allow | Allow |
 | **Sprint** | Cancel Sprint → Crouch | Block 自身 | Block | Delay→Cancel →Fire | Block |
 | **Jump** | 先 UnCrouch 再 Jump | Cancel Sprint → Jump | Block(空中) | Allow | Block |
+| **S (后退)** | — | Cancel Sprint | — | — | — |
 
 ---
 
@@ -277,3 +289,4 @@ Airborne 标签移除:
 | 疾跑/下蹲只有按住模式 | 缺少输入模式切换 | 添加 `ESprintInputMode`/`ECrouchInputMode` 枚举 + `SprintInputMode`/`CrouchInputMode` 属性，`OnStarted` 内分支处理 |
 | 体力消耗后不自动回复 | 无被动体力回复机制 | 新增 `GA_StaminaRegen` 被动 GA：CD GE 控制回复延迟，Infinite Periodic GE 控制回复间隔和回复量。消耗时 `ApplyCooldown`，CD 结束后自动施加回复 GE |
 | HUD 体力条跳变不流畅 | `UpdateStaminaHUD` 直接广播原始值 | 改为 Tick 中用 `FMath::FInterpTo` 平滑插值 `SmoothedStamina` 再广播 |
+| 疾跑时 S 后退仍能吃到加速 | `MaxWalkSpeed` 对所有方向生效，输入层无方向约束 | `OnMove` 中检测 `bIsSprinting && MoveVector.Y < 0` → 调用 `ServerUnSprint()` 打断疾跑 |

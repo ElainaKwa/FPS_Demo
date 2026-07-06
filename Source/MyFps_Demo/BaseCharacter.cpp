@@ -182,6 +182,12 @@ void ABaseCharacter::UpdateHealthHUD()
 
 void ABaseCharacter::OnDeath()
 {
+	// 防止重复死亡触发
+	if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(BaseGameplayTags::State_Dead))
+	{
+		return;
+	}
+
 	if (AbilitySystemComponent)
 	{
 		AbilitySystemComponent->AddLooseGameplayTag(BaseGameplayTags::State_Dead);
@@ -190,6 +196,7 @@ void ABaseCharacter::OnDeath()
 
 	if (CurrentWeapon && HasAuthority())
 	{
+		OwnedWeapons.Remove(CurrentWeapon);
 		CurrentWeapon->DropToGround();
 		CurrentWeapon = nullptr;
 	}

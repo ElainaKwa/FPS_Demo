@@ -1014,3 +1014,89 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 | `BaseStaminaAttributeSet` | Stamina, MaxStamina, IncomingStaminaCost | 1.5 (已实现) |
 | `BaseWeaponAttributeSet` | CurrentAmmo, MaxAmmo | 已实现 |
 | `BaseMovementAttributeSet` | BaseMoveSpeed, SprintSpeedMultiplier, CrouchSpeedMultiplier | 1.5 (已实现) |
+
+---
+
+## 12. 计分 & 敌人重生系统 ✅
+
+> 详细文档：`Docs/Design/Scoring/ScoringDesign.md`
+
+### 12.1 功能概述
+
+| 功能 | 状态 | 说明 |
+|------|:--:|------|
+| 击杀计分 | ✅ | 玩家击杀敌人 +1 分，通过 PlayerState 网络复制 |
+| 分数 HUD | ✅ | 左上角实时显示，绑定 PlayerState 委托自动刷新 |
+| 敌人重生 | ✅ | 死亡后延迟 N 秒自动复活，随机位置 |
+| 重生位置限定 | ✅ | NavMesh 随机可达点 + 胶囊体碰撞检测 + 天花板高度检测 |
+| 防重复死亡 | ✅ | State_Dead 标签守卫，防止多帧伤害重复触发 OnDeath |
+| 武器重新装备 | ✅ | 复活时清除旧武器引用，重新 SpawnDefaultWeapon |
+| Ragdoll 恢复 | ✅ | Respawn 时重置骨骼网格变换 + 重新初始化动画蓝图 |
+
+### 12.2 计分数据流
+
+```
+GA_WeaponFire (Instigator = 玩家 Pawn)
+  └→ Apply GE_Damage (EffectContext 自动携带 Instigator)
+      └→ BaseHealthAttributeSet::PostGameplayEffectExecute
+          └→ Health <= 0
+              ├→ Data.EffectSpec.GetContext().GetOriginalInstigator() → Killer
+              ├→ Character->OnDeath()
+              │     ├→ State_Dead 守卫（防重复）
+              │     ├→ OwnedWeapons.Remove + DropToGround
+              │     ├→ CancelAllAbilities
+              │     └→ MulticastDeathVisuals (Ragdoll)
+              └→ GameMode::OnKill(Killer, Victim)
+                    ├→ Cast<APawn>(Killer)->GetController() → PlayerController
+                    ├→ Killer.PlayerState->AddKill()  → Score++, Kills++
+                    └→ Victim.PlayerState->AddDeath() → Deaths++
+```
+
+### 12.3 敌人重生流程
+
+```
+ABaseEnemy::OnDeath()
+  ├── bAlreadyDead 检查（防重复 SetTimer）
+  ├── Super::OnDeath() → 施加 State_Dead + DropWeapon + Ragdoll
+  └── ClearTimer + SetTimer(RespawnDelay) → Respawn()
+
+RespawnDelay 到期 →
+  ABaseEnemy::Respawn()
+  ├── SelectRespawnLocation()
+  │     ├── 确定搜索原点（自定义 RespawnOrigins 或 InitialLocation）
+  │     ├── NavMesh::GetRandomReachablePointInRadius（10 次重试）
+  │     └── IsLocationSafe() 验证
+  │           ├── 离玩家 > MinRespawnDistanceToPlayer
+  │           ├── 胶囊体重叠检测（NavMesh 地面点 + HalfHeight 偏移到中心）
+  │           └── 头顶空间射线检测（确保能站立）
+  ├── StopMovementImmediately + 重置 Velocity
+  ├── TeleportTo(NewLocation)         ← 替代 SetActorLocation，适配 CharacterMovement
+  ├── SetSimulatePhysics(false) → 重置相对变换 → InitAnim(true)
+  ├── 恢复碰撞 / 血量 / 移除 State_Dead / 重装备武器
+  └── SetActorHiddenInGame(false) → 显示血条
+```
+
+### 12.4 新增/修改文件
+
+| 操作 | 文件 | 说明 |
+|------|------|------|
+| 新增 | `BasePlayerState.h/.cpp` | Kills/Deaths 网络复制，复用父类 Score |
+| 新增 | `UI/Score/BaseScoreWidget.h/.cpp` | 左上角分数 HUD，BindWidget ScoreText |
+| 新增 | `Docs/Design/Scoring/ScoringDesign.md` | 完整设计文档 |
+| 修改 | `BaseGameMode.h/.cpp` | PlayerStateClass + OnKill() 方法 |
+| 修改 | `BaseHealthAttributeSet.cpp` | 血量归零时获取 Killer → 通知 GameMode |
+| 修改 | `BaseEnemy.h/.cpp` | 重生系统：计时器 + NavMesh 选点 + 安全检测 |
+| 修改 | `BaseCharacter.cpp` | OnDeath 加 State_Dead 守卫 + OwnedWeapons 清理 |
+| 修改 | `BasePlayerController.h/.cpp` | 创建 ScoreWidget |
+| 修改 | `MyFps_Demo.Build.cs` | 加 NavigationSystem 模块 |
+| 修改 | `Config/DefaultGame.ini` | 加 ScoreWidgetClassPath |
+
+### 12.5 踩过的坑
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| Score/OnRep_Score 编译报错 | 父类 APlayerState 已有这两个成员 | 复用父类，只自定义 Kills/Deaths |
+| 复活后倒地不起 | SetSimulatePhysics(false) 不清除 ragdoll 姿态 | 重置 RelativeLocation/Rotation + InitAnim(true) |
+| 复活后没有武器 | DropToGround 后旧武器仍在 OwnedWeapons 中 | OnDeath 中 `OwnedWeapons.Remove` |
+| 敌人偶尔不复活 | 同帧多 GE 导致 OnDeath 被多次调用 | State_Dead 守卫 + bAlreadyDead 前置检查 |
+| 复活位置在墙里 | 安全检测用 NavMesh 地面点而非胶囊体中心 | 偏移 HalfHeight + 加头顶空间射线检测 |
