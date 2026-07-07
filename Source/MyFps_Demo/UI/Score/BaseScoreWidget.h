@@ -27,8 +27,11 @@ public:
 	void UpdateScore(float NewScore) const;
 
 private:
-	void TryBindDelegate();
+	/** Returns true when binding succeeded (PlayerState ready). */
+	bool TryBindDelegate();
 
 	UFUNCTION()
 	void OnScoreUpdated(float NewScore);
+
+	FTimerHandle BindRetryHandle;
 };

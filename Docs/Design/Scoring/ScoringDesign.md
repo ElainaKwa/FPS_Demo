@@ -81,11 +81,36 @@ AActor* Killer = Data.EffectSpec.GetContext().GetOriginalInstigator();
 
 参数类型：`Killer` 是 Pawn（ABaseCharacter），在 GameMode 中通过 `GetController()` 获取 PlayerController，再取 PlayerState。
 
-### 3.2 复用父类 Score
+### 3.2 客户端分数同步 — ReplicatedUsing
+
+`Kills` 属性必须用 `ReplicatedUsing = OnRep_Kills`，否则客户端收到新值后不会触发回调：
+
+```cpp
+// ❌ 错误 — 数据复制了，但客户端没人通知 UI 更新
+UPROPERTY(BlueprintReadOnly, Replicated)
+int32 Kills = 0;
+
+// ✅ 正确 — 客户端收到新值自动调 OnRep_Kills
+UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Kills)
+int32 Kills = 0;
+```
+
+`OnRep_Kills` 中广播 `OnScoreUpdated`：
+```cpp
+void ABasePlayerState::OnRep_Kills()
+{
+    OnKillsUpdated.Broadcast(Kills);
+    OnScoreUpdated.Broadcast(static_cast<float>(Kills));
+    // 注意：这里用 Kills 而非 GetScore()，因为 Score 和 Kills 独立复制，
+    // OnRep_Kills 时 GetScore() 可能还是复制前的旧值
+}
+```
+
+### 3.3 复用父类 Score
 
 `APlayerState` 已自带 `float Score` 和 `OnRep_Score()`，不能重复定义。子类 `ABasePlayerState` 只新增 Kills/Deaths，Score 通过 `SetScore(GetScore() + 1.0f)` 操作。
 
-### 3.3 重生位置选择
+### 3.4 重生位置选择
 
 ```
 SelectRespawnLocation()
@@ -102,11 +127,11 @@ SelectRespawnLocation()
 
 **关键修复**：Overlap 检测必须在胶囊体中心高度（地面点 + HalfHeight），而非 NavMesh 返回的地面点，否则胶囊体下半段嵌在地里不会被检测到。
 
-### 3.4 TeleportTo 替代 SetActorLocation
+### 3.5 TeleportTo 替代 SetActorLocation
 
 角色有 CharacterMovementComponent 时，`SetActorLocation` 可能被 CMC 的地面检测逻辑干扰。改用 `TeleportTo(Location, Rotation, false, true)` 是正确做法。
 
-### 3.5 Ragdoll 恢复
+### 3.6 Ragdoll 恢复
 
 ```
 GetMesh()->SetSimulatePhysics(false);      // 停止物理
@@ -116,11 +141,11 @@ GetMesh()->AttachToComponent(Capsule, ...); // 重新挂接
 GetMesh()->InitAnim(true);                  // 重新初始化动画蓝图 → 待机姿态
 ```
 
-### 3.6 防重复死亡
+### 3.7 防重复死亡
 
 `ABaseCharacter::OnDeath()` 开头检查 `State_Dead` 标签，已死亡则直接返回。`ABaseEnemy::OnDeath()` 在 Super 调用前先用 `bAlreadyDead` 缓存状态，防止重复设置重生计时器。
 
-### 3.7 武器重新装备
+### 3.8 武器重新装备
 
 `DropToGround()` 不清理 `OwnedWeapons` 数组，导致 `SpawnDefaultWeapon()` → `FindWeaponOfClass()` 找到地上旧武器。修复：OnDeath 中 `OwnedWeapons.Remove(CurrentWeapon)` 后再 drop。
 
@@ -165,6 +190,10 @@ ScoreWidgetClassPath=/Game/FPSContent/Blueprint/UI/Score/UMG_ScoreWidget.UMG_Sco
 | 复活后没有武器 | 旧武器仍在 `OwnedWeapons` 中 | OnDeath 中 `OwnedWeapons.Remove(CurrentWeapon)` |
 | 偶尔不复活 | 同帧多 GE 导致 OnDeath 多次调用 | `State_Dead` 守卫 + `bAlreadyDead` 前置检查 |
 | 复活在墙里 | Overlap 检测在地面高度而非胶囊体中心，头顶没检测 | 偏移 HalfHeight + 加天花板射线 |
+| 客户端分数不更新 | `UPROPERTY(Replicated)` 没有 `ReplicatedUsing`，`OnRep_Kills` 不会被调用 | 改为 `ReplicatedUsing = OnRep_Kills` |
+| `OnRep_Kills` 中 `GetScore()` 为旧值 | `Kills` 和 `Score` 独立复制，到达顺序不确定 | 用 `static_cast<float>(Kills)` 代替 `GetScore()` |
+| 敌人复活客户端看不到 | `Respawn()` 只跑在服务端，Ragdoll 复位等视觉操作不复制 | 拆分出 `MulticastRespawnVisuals` RPC 广播视觉 |
+| 死亡 UI 客户端不显示 | `OnDeath()` 的 FP 隐藏/镜头/鼠标逻辑只在服务端执行 | 移到 `MulticastDeathVisuals` RPC 中，本地玩家部分加 `IsLocalPlayerController` 守卫 |
 
 ---
 

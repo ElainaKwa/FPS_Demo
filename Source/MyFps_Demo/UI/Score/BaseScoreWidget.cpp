@@ -10,10 +10,19 @@ void UBaseScoreWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	GetWorld()->GetTimerManager().SetTimerForNextTick([this]()
+	if (TryBindDelegate())
 	{
-		TryBindDelegate();
-	});
+		return;
+	}
+
+	// If PlayerState isn't ready yet, poll every 0.1s
+	GetWorld()->GetTimerManager().SetTimer(BindRetryHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		if (TryBindDelegate())
+		{
+			GetWorld()->GetTimerManager().ClearTimer(BindRetryHandle);
+		}
+	}), 0.1f, true);
 }
 
 void UBaseScoreWidget::NativeDestruct()
@@ -21,29 +30,31 @@ void UBaseScoreWidget::NativeDestruct()
 	Super::NativeDestruct();
 }
 
-void UBaseScoreWidget::TryBindDelegate()
+bool UBaseScoreWidget::TryBindDelegate()
 {
 	APlayerController* PC = GetOwningPlayer();
 	if (!PC)
 	{
-		return;
+		return false;
 	}
 
 	ABasePlayerState* PS = PC->GetPlayerState<ABasePlayerState>();
 	if (!PS)
 	{
-		return;
+		return false;
 	}
 
 	PS->OnScoreUpdated.AddDynamic(this, &UBaseScoreWidget::OnScoreUpdated);
-	OnScoreUpdated(PS->GetScore());
+	// Show current value immediately
+	UpdateScore(PS->GetScore());
+	return true;
 }
 
 void UBaseScoreWidget::UpdateScore(float NewScore) const
 {
 	if (ScoreText)
 	{
-		ScoreText->SetText(FText::FromString(FString::Printf(TEXT("分数: %.0f"), NewScore)));
+		ScoreText->SetText(FText::FromString(FString::Printf(TEXT("Score: %.0f"), NewScore)));
 	}
 }
 

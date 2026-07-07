@@ -30,6 +30,8 @@ public class MyFps_Demo : ModuleRules
 		PublicIncludePaths.AddRange(new string[] {
 			"MyFps_Demo",
 			"MyFps_Demo/Weapons",
+			"MyFps_Demo/Components",
+			"MyFps_Demo/UI/Death",
 			"MyFps_Demo/GameAbilitySystem",
 			"MyFps_Demo/GameAbilitySystem/Abilities/Fire",
 			"MyFps_Demo/GameAbilitySystem/Abilities/Reload"

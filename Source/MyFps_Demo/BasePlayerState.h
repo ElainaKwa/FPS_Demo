@@ -26,10 +26,10 @@ public:
 	FOnKillsUpdated OnKillsUpdated;
 
 	// APlayerState 已自带 float Score 和 OnRep_Score，这里只加 Kills/Deaths
-	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Score")
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Kills, Category = "Score")
 	int32 Kills = 0;
 
-	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Score")
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Deaths, Category = "Score")
 	int32 Deaths = 0;
 
 	UFUNCTION(BlueprintCallable, Category = "Score")
@@ -41,4 +41,7 @@ public:
 protected:
 	UFUNCTION()
 	void OnRep_Kills();
+
+	UFUNCTION()
+	void OnRep_Deaths();
 };

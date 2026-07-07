@@ -139,7 +139,7 @@ void ABaseEnemy::PlayFiringMontage(UAnimMontage* Montage)
 	}
 }
 
-void ABaseEnemy::AddWeaponRecoil(float RecoilAmount)
+void ABaseEnemy::AddWeaponRecoil(float RecoilAmount, float InterpSpeed, float RecoverySpeed, float MaxAccumulation)
 {
 }
 
@@ -321,31 +321,20 @@ void ABaseEnemy::Respawn()
 	// 3. Teleport to new location (safe for CharacterMovementComponent)
 	TeleportTo(NewLocation, GetActorRotation(), false, true);
 
-	// 4. Stop ragdoll physics and reset mesh to standing pose
-	GetMesh()->SetSimulatePhysics(false);
-	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -96.0f));
-	GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
-	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	GetMesh()->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, false));
-	GetMesh()->InitAnim(true);
-
-	// 5. Restore capsule collision
-	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-
-	// 6. Reset health
+	// 4. Reset health
 	if (HealthAttributeSet)
 	{
 		HealthAttributeSet->SetHealth(HealthAttributeSet->GetMaxHealth());
 		UE_LOG(LogTemp, Warning, TEXT("[%s] Health reset to %.0f"), *GetName(), HealthAttributeSet->GetHealth());
 	}
 
-	// 7. Remove death tag
+	// 5. Remove death tag
 	if (AbilitySystemComponent)
 	{
 		AbilitySystemComponent->RemoveLooseGameplayTag(BaseGameplayTags::State_Dead);
 	}
 
-	// 8. Re-equip weapon
+	// 6. Re-equip weapon
 	if (!CurrentWeapon)
 	{
 		SpawnDefaultWeapon();
@@ -353,21 +342,38 @@ void ABaseEnemy::Respawn()
 			*GetName(), CurrentWeapon ? *CurrentWeapon->GetName() : TEXT("NULL"));
 	}
 
-	// 9. Show the actor
+	// 7. Broadcast visuals to all clients
+	MulticastRespawnVisuals();
+
+	UE_LOG(LogTemp, Warning, TEXT("[%s] Respawn complete | Location=%s | Health=%.0f"),
+		*GetName(), *NewLocation.ToString(),
+		HealthAttributeSet ? HealthAttributeSet->GetHealth() : -1.0f);
+}
+
+void ABaseEnemy::MulticastRespawnVisuals_Implementation()
+{
+	// Stop ragdoll, reset mesh to standing pose
+	GetMesh()->SetSimulatePhysics(false);
+	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -96.0f));
+	GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	GetMesh()->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, false));
+	GetMesh()->InitAnim(true);
+
+	// Restore capsule collision
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
+	// Show actor
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
 
-	// 10. Restore health bar
+	// Restore health bar
 	if (HealthBarWidget)
 	{
 		HealthBarWidget->SetVisibility(true);
 	}
 
 	UpdateHealthHUD();
-
-	UE_LOG(LogTemp, Warning, TEXT("[%s] Respawn complete | Location=%s | Health=%.0f"),
-		*GetName(), *NewLocation.ToString(),
-		HealthAttributeSet ? HealthAttributeSet->GetHealth() : -1.0f);
 }
 
 FVector ABaseEnemy::SelectRespawnLocation() const

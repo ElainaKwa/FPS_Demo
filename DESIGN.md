@@ -46,6 +46,8 @@ MyFps_Demo/
 ├── BaseEnemy.h/.cpp               # 敌人角色：AI + 世界空间血条
 ├── BaseGameMode.h/.cpp
 ├── BasePlayerController.h/.cpp
+├── Components/
+│   └── RecoilComponent.h/.cpp     # 后坐力执行器：累加 + Tick 插值 + Pitch 输出
 ├── UI/
 │   ├── BulletCounter/
 │   │   └── BaseBulletCounterWidget.h/.cpp   # 弹药计数 HUD（Config 配置 BP 路径）
@@ -54,6 +56,8 @@ MyFps_Demo/
 │       ├── Crosshair_CrossDot.h/.cpp          # 十字+点型实现（BindWidget ×5）
 │       ├── CrosshairSettingsTypes.h           # FCrosshairSettings + USaveGame
 │       └── CrosshairSettingsSubsystem.h/.cpp  # 全局准星设置单例（Config 配置 BP 路径）
+│   ├── Death/
+│   │   └── BaseDeathWidget.h              # 死亡提示 Widget 基类（Config 配置 BP 路径）
 ├── GameSettings/                                # 游戏设置系统（详见 Docs/Design/Settings/）
 │   ├── GameSettingsSubsystem.h/.cpp            # 中央单例：统一 Save/Load/Apply/Revert
 │   ├── GameSettingsCategory.h/.cpp             # 抽象基类：Pending/Current 双数据
@@ -155,6 +159,8 @@ PerformFire()
       未松开 & 半自动 → WaitDelay(RefireRate) → OnRefireReady() → 结束（需重新按下）
 ```
 
+> 后坐力系统已重构为独立组件，详见 `Docs/Design/Recoil/RecoilDesign.md`。
+
 **GA_WeaponReload（换弹能力）**
 
 ```
@@ -220,7 +226,8 @@ IBaseWeaponHolder
   ├── GetWeaponTargetLocation()   → 瞄准目标（用于弹道计算）
   ├── PlayFiringMontage()         → 播放开火动画
   ├── PlayReloadMontage()        → 播放换弹动画
-  ├── AddWeaponRecoil()          → 施加屏幕后坐力
+  ├── AddWeaponRecoil(amount,     → 施加屏幕后坐力（含平滑参数）
+│      interp, recovery, max)
   ├── UpdateWeaponHUD()          → 刷新 UI
   ├── AttachWeaponMeshes()       → 挂载武器骨骼网格
   └── GetCurrentWeapon()         → 获取当前武器
@@ -253,6 +260,7 @@ APlayerCharacter : ABaseCharacter   ← 玩家特化
 ├── USkeletalMeshComponent (FP)     ← 第一人称网格
 ├── UCameraComponent                ← 第一人称相机
 ├── UBaseStaminaAttributeSet        ← 体力属性
+├── URecoilComponent                ← 后坐力平滑执行器
 └── Enhanced Input 绑定
 
 ABaseEnemy : ABaseCharacter         ← 敌人特化
@@ -308,7 +316,7 @@ PerformFire()
   │   └─ Cast<ABaseCharacter> → TargetASC->ApplyGameplayEffectSpecToSelf (GE_Damage, SetByCaller: Data.Damage)
   │
   ├─ PlayFiringMontage() ── 开火动画
-  ├─ AddWeaponRecoil()    ── 镜头后坐力
+  ├─ AddWeaponRecoil()    ── 镜头后坐力（传入武器 4 参数 → RecoilComponent 平滑）
   │
   ├─ 先 --Weapon.CurrentBullets（不依赖 GE）
   ├─ ApplyGameplayEffectSpecToOwner (GE_AmmoCost) → 消费弹药（附加）
@@ -581,7 +589,7 @@ APlayerCharacter::OnSwitchWeapon()
 | `Server` | `ServerSwitchWeapon` | 客户端 → 服务端 | 请求切换武器 |
 | `NetMulticast` | `MulticastPlayFiringMontage` | 服务端 → 所有客户端 | 开火动画 |
 | `NetMulticast` | `MulticastPlayReloadMontage` | 服务端 → 所有客户端 | 换弹动画 |
-| `NetMulticast` | `MulticastAddWeaponRecoil` | 服务端 → 所有客户端 | 镜头后坐力 |
+| `NetMulticast` | `MulticastAddWeaponRecoil` | 服务端 → 所有客户端 | 镜头后坐力（含平滑参数） |
 | `NetMulticast` | `MulticastDeathVisuals` | 服务端 → 所有客户端 | 死亡 Ragdoll + 隐藏血条 |
 | `NetMulticast` | `MulticastDropMagazineVisuals` | 服务端 → 所有客户端 | 弹匣掉落左手显现 |
 | `NetMulticast` | `MulticastInsertMagazineVisuals` | 服务端 → 所有客户端 | 弹匣插入左手隐藏 |
@@ -1032,6 +1040,8 @@ Phase 2~5 相互独立，可按兴趣调整顺序，但都依赖 Phase 1。
 | 防重复死亡 | ✅ | State_Dead 标签守卫，防止多帧伤害重复触发 OnDeath |
 | 武器重新装备 | ✅ | 复活时清除旧武器引用，重新 SpawnDefaultWeapon |
 | Ragdoll 恢复 | ✅ | Respawn 时重置骨骼网格变换 + 重新初始化动画蓝图 |
+
+> 死亡系统详细设计见 `Docs/Design/Death/DeathDesign.md`。
 
 ### 12.2 计分数据流
 

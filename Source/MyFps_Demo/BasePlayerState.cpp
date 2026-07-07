@@ -46,4 +46,10 @@ void ABasePlayerState::AddDeath()
 void ABasePlayerState::OnRep_Kills()
 {
 	OnKillsUpdated.Broadcast(Kills);
+	// Use Kills directly — Score replicates independently and may still be stale
+	OnScoreUpdated.Broadcast(static_cast<float>(Kills));
+}
+
+void ABasePlayerState::OnRep_Deaths()
+{
 }

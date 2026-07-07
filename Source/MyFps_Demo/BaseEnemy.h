@@ -77,7 +77,7 @@ public:
 
 	virtual FVector GetWeaponTargetLocation() const override;
 	virtual void PlayFiringMontage(UAnimMontage* Montage) override;
-	virtual void AddWeaponRecoil(float RecoilAmount) override;
+	virtual void AddWeaponRecoil(float RecoilAmount, float InterpSpeed, float RecoverySpeed, float MaxAccumulation) override;
 	virtual void UpdateHealthHUD() override;
 	virtual void OnDeath() override;
 	virtual void MulticastDeathVisuals_Implementation() override;
@@ -101,5 +101,8 @@ protected:
 
 	void Respawn();
 	FVector SelectRespawnLocation() const;
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastRespawnVisuals();
 	bool IsLocationSafe(const FVector& Location) const;
 };
