@@ -19,11 +19,19 @@ class MYFPS_DEMO_API ABaseDroppedMagazine : public AActor
 	UPROPERTY(EditAnywhere, Category = "Drop", meta = (ClampMin = 0.1f, ClampMax = 30.0f, Units = "s"))
 	float AutoDestroyTime = 5.0f;
 
+	UPROPERTY(ReplicatedUsing = OnRep_DropData)
+	TObjectPtr<UStaticMesh> DropMesh;
+
+	UPROPERTY(Replicated)
+	FVector DropVelocity;
+
 	FTimerHandle DestroyTimer;
 
 public:
 
 	ABaseDroppedMagazine();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(BlueprintCallable, Category = "Drop")
 	void Initialize(UStaticMesh* InMesh, const FVector& InitialVelocity);
@@ -36,4 +44,7 @@ protected:
 	virtual void BeginPlay() override;
 
 	void OnDestroyTimer();
+
+	UFUNCTION()
+	void OnRep_DropData();
 };

@@ -58,6 +58,25 @@ ABaseCharacter (implements IAbilitySystemInterface + IBaseWeaponHolder)
 - `ApplyGameplayEffectSpecToTarget` last parameter is `FGameplayAbilityTargetDataHandle&`, not an ASC pointer. To apply GE to a target ASC, use `TargetASC->ApplyGameplayEffectSpecToSelf()`.
 - After renaming a class, add `ActiveClassRedirects` in `Config/DefaultEngine.ini`.
 
+## Code Commenting Standard
+
+当用户要求添加/更新注释时，遵循以下规范：
+
+**三类注释：**
+1. **分段标题** `// ====` — 将文件按职责切块（构造、网络复制、GAS、输入、RPC、死亡等），每块 3~5 个函数归为一组
+2. **Doxygen 注释** `/** */` — 用于 UCLASS / UFUNCTION / 关键虚函数，解释类的定位、方法的目的、参数含义、使用场景
+3. **内联注释** `//` — 用于关键代码行，解释**为什么**这样写（不是翻译代码，是解释意图/原因/陷阱），例如：
+   - `// State_Dead 标签守卫（防多帧重复触发）`
+   - `// bOwnerNoSee：自己不看到 TP 身体（避免遮挡 FP 视野）`
+   - `// 弹药消耗先扣 Weapon，GE 作为附加（兜底）`
+
+**风格要求：**
+- 中文注释
+- 注释在代码上方（不是行尾）
+- 每个 .h 的 UCLASS 必须有 doxygen 注释说明类在架构中的角色
+- 每个 .cpp 开头必须有分块标题
+- 不要翻译代码 — 解释意图、架构决策、容易出错的地方
+
 ## Documentation Convention
 
 When modifying code, update `DESIGN.md` and the corresponding file under `Docs/Design/`. Existing design docs:

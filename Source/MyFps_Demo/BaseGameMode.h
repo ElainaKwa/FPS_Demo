@@ -7,6 +7,8 @@
 #include "UnLuaInterface.h"
 #include "BaseGameMode.generated.h"
 
+class ABaseCharacter;
+
 UCLASS()
 class MYFPS_DEMO_API ABaseGameMode : public AGameModeBase, public IUnLuaInterface
 {
@@ -17,4 +19,7 @@ public:
 	ABaseGameMode();
 
 	virtual FString GetModuleName_Implementation() const override;
+
+	UFUNCTION(BlueprintCallable, Category = "Score")
+	void OnKill(AActor* Killer, ABaseCharacter* Victim);
 };
